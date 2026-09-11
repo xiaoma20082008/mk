@@ -1,2 +1,36 @@
 # mk
+
 The monkey programming language written by go
+
+## Phase 1: Lexer
+
+- [x] Lexer
+- [x] Parser: Using [Pratt parser](https://tdop.github.io/)
+- [x] Formatter: Using visitor pattern
+
+## Phase 2: Parser
+
+- [x] Statement parser: Using Recursive Descent Parser
+- [x] Experssion parser: Using [Pratt parser](https://tdop.github.io/)
+
+## Phase 4: Type checker
+
+- [ ] Type Checker based on AST and Visitor Pattern
+
+## Phase 5: Evaluator
+
+- [x] Evaluator: Using AST interceptor
+
+## Phase 5: Object system
+
+- [ ] struct type: int, bool, float, ...
+- [ ] reference type: User defined class
+
+## Phase 6: Repl
+
+- [x] `os.Stdout`
+
+## Phase 8: JIT
+
+- [ ] bytecode
+- [ ] JIT interceptor
