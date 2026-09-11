@@ -190,6 +190,12 @@ func (l *Lexer) skipWhitespace() {
 	}
 }
 
+func (l *Lexer) Position() (ln int, col int) {
+	ln = l.ln
+	col = l.col
+	return ln, col
+}
+
 func NewLexer(input string) *Lexer {
 	l := &Lexer{
 		input: input,

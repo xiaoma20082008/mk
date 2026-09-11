@@ -22,29 +22,19 @@ func TestPrettyFormatter_Format(t *testing.T) {
 		},
 
 		{
-			name: "for1",
-			line: `for(a=10;a<20;a = a+1){}`,
-			want: `for (a = 10; a < 20; a = a + 1) {
+			name: "while",
+			line: `while(a<20){}`,
+			want: `while (a < 20) {
 }`,
 		},
 		{
 			name: "for1",
-			line: `for(;;){}`,
-			want: `for (;;) {
+			line: `while(a<20){ a= a+1; add(a,10);}`,
+			want: `while (a < 20) {
+  a = a + 1;
+  add(a, 10);
 }`,
 		},
-		{
-			name: "for2",
-			line: `for(a=10;;){}`,
-			want: `for (a = 10; ;) {
-}`,
-		},
-		// 		{
-		// 			name: "for2",
-		// 			line: `for(a=10;;){}`,
-		// 			want: `for (a = 10; ;) {
-		// }`,
-		// 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

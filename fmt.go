@@ -147,28 +147,14 @@ func (f *PrettyFormatter) VisitLet(n *LetStmt, x any) (Node, error) {
 	return n, nil
 }
 
-func (f *PrettyFormatter) VisitFor(n *ForStmt, x any) (Node, error) {
+func (f *PrettyFormatter) VisitWhile(n *WhileStmt, x any) (Node, error) {
 	/*
-		for (init; cond; post) {
+		while (a != 10) {
 		}
 	*/
 	f.writeIndent()
-	f.sb.WriteString("for (")
-	if n.Init != nil {
-		n.Init.Accept(f, x)
-	} else {
-		f.sb.WriteString(";")
-	}
-
-	if n.Cond != nil {
-		f.sb.WriteString(" ")
-		n.Cond.Accept(f, x)
-	}
-	f.sb.WriteString(";")
-	if n.Post != nil {
-		f.sb.WriteString(" ")
-		n.Post.Accept(f, x)
-	}
+	f.sb.WriteString("while (")
+	n.Cond.Accept(f, x)
 	f.sb.WriteString(") ")
 	n.Body.Accept(f, x)
 	return n, nil

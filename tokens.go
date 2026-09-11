@@ -55,13 +55,16 @@ const (
 	TRUE     = "TRUE"
 	FALSE    = "FALSE"
 	IF       = "IF"
+	IS       = "IS"
 	ELSE     = "ELSE"
-	FOR      = "FOR"
+	WHILE    = "WHILE"
 	NULL     = "NULL"
 	SELF     = "SELF"
 	CLASS    = "CLASS"
 	STRUCT   = "STRUCT"
 	NEW      = "NEW"
+	TYPEOF   = "TYPEOF"
+	SIZEOF   = "SIZEOF"
 )
 
 var DUMMY = Token{ERR, ""}
@@ -72,10 +75,16 @@ var keywords = map[string]TokenType{
 	"return": RETURN,
 	"true":   TRUE,
 	"false":  FALSE,
+	"null":   NULL,
 	"if":     IF,
+	"is":     IS,
 	"else":   ELSE,
-	"for":    FOR,
+	"while":  WHILE,
 	"class":  CLASS,
+	"typeof": TYPEOF,
+	"sizeof": SIZEOF,
+	"self":   SELF,
+	"new":    NEW,
 	"struct": STRUCT,
 }
 

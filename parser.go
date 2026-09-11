@@ -92,8 +92,8 @@ func (p *parserImpl) ParseStmt() (Statement, error) {
 		return p.parseIf()
 	case RETURN:
 		return p.parseReturn()
-	case FOR:
-		return p.parseFor()
+	case WHILE:
+		return p.parseWhile()
 	case LBRACE:
 		return p.parseBlock()
 	default:
@@ -101,9 +101,9 @@ func (p *parserImpl) ParseStmt() (Statement, error) {
 		if err != nil {
 			return nil, err
 		}
-		// if p.token.Type == SEMI {
-		// 	p.nextToken()
-		// }
+		if p.token.Type == SEMI {
+			p.nextToken()
+		}
 		return &ExprStmt{Expr: expr}, nil
 	}
 }
@@ -375,42 +375,32 @@ func (p *parserImpl) parseIf() (*IfStmt, error) {
 	return s, nil
 }
 
-func (p *parserImpl) parseFor() (*ForStmt, error) {
+func (p *parserImpl) parseWhile() (*WhileStmt, error) {
 	tok := p.token
-	p.accept(FOR)
-	p.accept(LPAREN)
-
-	var init Statement
+	p.accept(WHILE)
+	if !p.accept(LPAREN) {
+		return nil, fmt.Errorf("Syntax error, Missing '{' after while.")
+	}
 	var cond Expression
-	var post Expression
 	var err error
-	if p.token.Type != SEMI {
-		init, err = p.ParseStmt()
-		if err != nil {
-			return nil, err
-		}
+	if p.token.Type == RPAREN {
+		return nil, fmt.Errorf("Syntax error, Missing 'condition' in while.")
 	}
-	p.accept(SEMI)
-	if p.token.Type != SEMI {
-		cond, err = p.ParseExpr()
-		if err != nil {
-			return nil, err
-		}
+	cond, err = p.ParseExpr()
+	if err != nil {
+		return nil, err
 	}
-	p.accept(SEMI)
-	if p.token.Type != RPAREN {
-		post, err = p.ParseExpr()
-		if err != nil {
-			return nil, err
-		}
+
+	if !p.accept(RPAREN) {
+		return nil, fmt.Errorf("Syntax error, Missing ')' after while condition.")
 	}
-	p.accept(RPAREN)
+
 	body, err := p.parseBlock()
 	if err != nil {
 		return nil, err
 	}
 
-	return &ForStmt{Token: tok, Init: init, Cond: cond, Post: post, Body: body}, nil
+	return &WhileStmt{Token: tok, Cond: cond, Body: body}, nil
 }
 
 func (p *parserImpl) parseBlock() (*BlockStmt, error) {
@@ -431,8 +421,15 @@ func (p *parserImpl) parseBlock() (*BlockStmt, error) {
 func (p *parserImpl) parseReturn() (*ReturnStmt, error) {
 	tok := p.token
 	p.accept(RETURN)
-	expr, err := p.ParseExpr()
-	p.accept(SEMI)
+	var expr Expression
+	var err error
+	if p.token.Type != SEMI {
+		expr, err = p.ParseExpr()
+	}
+	if !p.accept(SEMI) {
+		l, c := p.l.Position()
+		return nil, fmt.Errorf("Syntax error, missing ';' at Ln %d, Col %d", l, c)
+	}
 	return &ReturnStmt{Token: tok, Value: expr}, err
 }
 

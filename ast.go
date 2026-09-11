@@ -19,7 +19,7 @@ type Visitor interface {
 	// Stmt
 	VisitIf(*IfStmt, any) (Node, error)
 	VisitLet(*LetStmt, any) (Node, error)
-	VisitFor(*ForStmt, any) (Node, error)
+	VisitWhile(*WhileStmt, any) (Node, error)
 	VisitExpr(*ExprStmt, any) (Node, error)
 	VisitReturn(*ReturnStmt, any) (Node, error)
 	VisitBlock(*BlockStmt, any) (Node, error)
@@ -115,11 +115,9 @@ type IfStmt struct {
 	Else  *BlockStmt
 }
 
-type ForStmt struct {
+type WhileStmt struct {
 	Token Token
-	Init  Statement
 	Cond  Expression
-	Post  Expression
 	Body  *BlockStmt
 }
 type BlockStmt struct {
@@ -281,14 +279,14 @@ func (s *IfStmt) Accept(v Visitor, x any) (Node, error) {
 	return v.VisitIf(s, x)
 }
 
-func (s *ForStmt) stmtNode() {}
+func (s *WhileStmt) stmtNode() {}
 
-func (s *ForStmt) Text() string {
-	return "let"
+func (s *WhileStmt) Text() string {
+	return "while"
 }
 
-func (s *ForStmt) Accept(v Visitor, x any) (Node, error) {
-	return v.VisitFor(s, x)
+func (s *WhileStmt) Accept(v Visitor, x any) (Node, error) {
+	return v.VisitWhile(s, x)
 }
 
 func (s *BlockStmt) stmtNode() {}

@@ -57,6 +57,8 @@ type TupleObj struct {
 type FuncObj struct {
 	Name string
 	Args []any
+	Body []any
+	Call func(args []Obj) (Obj, bool)
 }
 
 type ClassObj struct{}
@@ -98,6 +100,14 @@ func (o *StringObj) Type() ObjType {
 
 func (o *StringObj) Inspect() string {
 	return o.Value
+}
+
+func (o *FuncObj) Type() ObjType {
+	return OBJ_FUNC
+}
+
+func (o *FuncObj) Inspect() string {
+	return o.Name
 }
 
 func NewInt(v int64) *IntObj {

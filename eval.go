@@ -6,6 +6,7 @@ type Evaluator struct {
 	env *Env
 
 	ret Obj
+	fin bool // 表示是否结束
 }
 
 func (e *Evaluator) Eval(p *Program) Obj {
@@ -91,11 +92,30 @@ func (f *Evaluator) VisitBinary(n *BinaryExpr, x any) (Node, error) {
 	rhs := f.ret
 	if lhs.Type() == OBJ_INT && rhs.Type() == OBJ_INT {
 		f.ret = evalIntOp(n.Op.Lit, lhs, rhs)
+	} else if n.Op.Type == PLUS {
+		f.ret = NewString(lhs.Inspect() + rhs.Inspect())
+	} else {
+		f.ret = O_NULL
 	}
 	return n, nil
 }
 
 func (f *Evaluator) VisitCall(n *CallExpr, x any) (Node, error) {
+	n.Fn.Accept(f, x)
+	fn, ok := f.ret.(*FuncObj)
+	if !ok {
+		panic("not a function")
+	}
+	args := []Obj{}
+	for _, arg := range n.Args {
+		arg.Accept(f, x)
+		args = append(args, f.ret)
+	}
+	res, done := fn.Call(args)
+	f.ret = res
+	if done {
+		f.fin = false
+	}
 	return n, nil
 }
 
@@ -116,6 +136,33 @@ func (f *Evaluator) VisitParen(n *ParenExpr, x any) (Node, error) {
 }
 
 func (f *Evaluator) VisitFn(n *FnExpr, x any) (Node, error) {
+	fo := &FuncObj{}
+	definitionEnv := f.env
+	fo.Call = func(args []Obj) (Obj, bool) {
+		// 1. 创建临时环境
+		localEnv := NewEnv(definitionEnv)
+		// 2. 绑定形参和实参
+		for i, param := range n.Args {
+			localEnv.Put(param.Value, args[i])
+		}
+		// 3. 备份当前环境
+		oldEnv := f.env
+		f.env = localEnv
+
+		// 4. 执行函数体
+		n.Body.Accept(f, x)
+
+		// 5. 记录执行结果和当前的返回信号
+		res := f.ret
+		fin := f.fin
+
+		// 6. 恢复
+		f.env = oldEnv
+
+		// 7. 返回结果给调用者
+		return res, fin
+	}
+	f.ret = fo
 	return n, nil
 }
 
@@ -142,15 +189,17 @@ func (f *Evaluator) VisitLet(n *LetStmt, x any) (Node, error) {
 	return n, nil
 }
 
-func (f *Evaluator) VisitFor(n *ForStmt, x any) (Node, error) {
-	if n.Init != nil {
-		n.Init.Accept(f, x)
+func (f *Evaluator) VisitWhile(n *WhileStmt, x any) (Node, error) {
+	for {
+		n.Cond.Accept(f, x)
+		if !isTruthy(f.ret) {
+			break
+		}
+		n.Body.Accept(f, x)
+		if f.fin {
+			break
+		}
 	}
-	n.Cond.Accept(f, x)
-	if n.Post != nil {
-		n.Post.Accept(f, x)
-	}
-	n.Body.Accept(f, x)
 	return n, nil
 }
 
@@ -214,4 +263,17 @@ func evalIntOp(op string, lhs, rhs Obj) Obj {
 	default:
 		return O_NULL
 	}
+}
+
+func isTruthy(obj Obj) bool {
+	if obj == nil {
+		return false
+	}
+	if _, ok := obj.(*NullObj); ok {
+		return false
+	}
+	if v, ok := obj.(*BoolObj); ok {
+		return v.Value
+	}
+	return true
 }
