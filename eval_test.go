@@ -15,6 +15,20 @@ func TestEvaluator_Eval(t *testing.T) {
 			line: `-1>2?"a":"b"`,
 			want: `b`,
 		},
+		{
+			name: "eval add",
+			line: `let add = fn(x,y){return x+y;};
+			add(1,2);
+			`,
+			want: `3`,
+		},
+		{
+			name: "eval add",
+			line: `let add = fn(x,y){ c = x+y; return c*c;};
+			add(1,2);
+			`,
+			want: `9`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

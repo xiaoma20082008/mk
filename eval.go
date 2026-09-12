@@ -167,6 +167,10 @@ func (f *Evaluator) VisitFn(n *FnExpr, x any) (Node, error) {
 }
 
 func (f *Evaluator) VisitAssign(n *AssignExpr, x any) (Node, error) {
+	n.Rhs.Accept(f, x)
+	if id, ok := n.Lhs.(*IdentExpr); ok {
+		f.env.Put(id.Value, f.ret)
+	}
 	return n, nil
 }
 
@@ -210,10 +214,18 @@ func (f *Evaluator) VisitExpr(n *ExprStmt, x any) (Node, error) {
 
 func (f *Evaluator) VisitReturn(n *ReturnStmt, x any) (Node, error) {
 	n.Value.Accept(f, x)
+	f.fin = true
 	return n, nil
 }
 
 func (f *Evaluator) VisitBlock(n *BlockStmt, x any) (Node, error) {
+	for _, stmt := range n.Statements {
+		stmt.Accept(f, x)
+		_, done := f.ret, f.fin
+		if done {
+			break
+		}
+	}
 	return n, nil
 }
 
