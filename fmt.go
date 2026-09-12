@@ -1,6 +1,7 @@
 package mk
 
 import (
+	"strconv"
 	"strings"
 )
 
@@ -34,23 +35,90 @@ func (f *PrettyFormatter) VisitProgram(n *Program, x any) (Node, error) {
 }
 
 // Expr
+
+func (f *PrettyFormatter) VisitIndex(n *IndexExpr, x any) (Node, error) {
+	n.Lhs.Accept(f, x)
+	f.sb.WriteString("[")
+	n.Index.Accept(f, x)
+	f.sb.WriteString("]")
+	return n, nil
+}
+
+func (f *PrettyFormatter) VisitDot(n *DotExpr, x any) (Node, error) {
+	n.Lhs.Accept(f, x)
+	f.sb.WriteString(".")
+	n.Rhs.Accept(f, x)
+	return n, nil
+}
+
+func (f *PrettyFormatter) VisitString(n *StringLitExpr, x any) (Node, error) {
+	f.sb.WriteString("\"")
+	f.sb.WriteString(n.Value)
+	f.sb.WriteString("\"")
+	return n, nil
+}
+
+func (f *PrettyFormatter) VisitInt(n *IntLitExpr, x any) (Node, error) {
+	f.sb.WriteString(strconv.Itoa(int(n.Value)))
+	return n, nil
+}
+
+func (f *PrettyFormatter) VisitBool(n *BoolLitExpr, x any) (Node, error) {
+	if n.Value {
+		f.sb.WriteString("true")
+	} else {
+		f.sb.WriteString("false")
+	}
+	return n, nil
+}
+
+func (f *PrettyFormatter) VisitList(n *ListLitExpr, x any) (Node, error) {
+	f.sb.WriteString("[")
+	for i, v := range n.Value {
+		if i > 0 {
+			f.sb.WriteString(", ")
+		}
+		v.Accept(f, x)
+	}
+	f.sb.WriteString("]")
+	return n, nil
+}
+
+func (f *PrettyFormatter) VisitTuple(n *TupleLitExpr, x any) (Node, error) {
+	// (x, y, y,)
+	f.sb.WriteString("(")
+	for i, v := range n.Value {
+		if i > 0 {
+			f.sb.WriteString(" ")
+		}
+		v.Accept(f, x)
+		f.sb.WriteString(",")
+	}
+	f.sb.WriteString(")")
+	return n, nil
+}
+
+func (f *PrettyFormatter) VisitMap(n *MapLitExpr, x any) (Node, error) {
+	f.sb.WriteString("{")
+	i := 0
+	for k, v := range n.Value {
+		k.Accept(f, x)
+		f.sb.WriteString(":")
+		if i > 0 {
+			f.sb.WriteString(" ")
+		}
+		v.Accept(f, x)
+		i++
+	}
+	f.sb.WriteString("}")
+	return n, nil
+}
+
 func (f *PrettyFormatter) VisitIdent(n *IdentExpr, x any) (Node, error) {
 	f.sb.WriteString(n.Value)
 	return n, nil
 }
 
-func (f *PrettyFormatter) VisitLiteral(n *LiteralExpr, x any) (Node, error) {
-	var s string
-	if n.Token.Type == STRING {
-		s += "\""
-		s += n.Token.Lit
-		s += "\""
-	} else {
-		s = n.Token.Lit
-	}
-	f.sb.WriteString(s)
-	return n, nil
-}
 func (f *PrettyFormatter) VisitUnary(n *UnaryExpr, x any) (Node, error) {
 	f.sb.WriteString(n.Token.Lit)
 	n.Right.Accept(f, nil)

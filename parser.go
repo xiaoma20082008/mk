@@ -3,6 +3,7 @@ package mk
 import (
 	"errors"
 	"fmt"
+	"strconv"
 )
 
 type Parser interface {
@@ -52,7 +53,9 @@ func NewParser(l *Lexer) *parserImpl {
 	p.prefixFns[BANG] = p.parseUnary
 	p.prefixFns[TILDE] = p.parseUnary
 	// 5.
-	p.prefixFns[LPAREN] = p.parseGroup
+	p.prefixFns[LPAREN] = p.parseGroupOrTuple
+	p.prefixFns[LBRACE] = p.parseMap
+	p.prefixFns[LBRACKET] = p.parseList
 	p.prefixFns[FUNCTION] = p.parseFunction
 	p.prefixFns[NEW] = p.parseNew
 
@@ -76,6 +79,10 @@ func NewParser(l *Lexer) *parserImpl {
 	p.infixFns[QUESTION] = p.parseBinary
 	// 4. (
 	p.infixFns[LPAREN] = p.parseBinary
+	// 5. .
+	p.infixFns[DOT] = p.parseBinary
+	// 6. [
+	p.infixFns[LBRACKET] = p.parseBinary
 	p.nextToken()
 	return p
 }
@@ -97,10 +104,20 @@ func (p *parserImpl) ParseStmt() (Statement, error) {
 	case LBRACE:
 		return p.parseBlock()
 	default:
+		// tok := p.token
 		expr, err := p.ParseExpr()
 		if err != nil {
 			return nil, err
 		}
+		// switch expr.(type) {
+		// case *AssignExpr, *CallExpr:
+		// 	break
+		// default:
+		// 	return nil, fmt.Errorf("Syntax error, Missing ';' when parsing %T", tok)
+		// }
+		// if !p.accept(SEMI) {
+		// 	return nil, fmt.Errorf("Syntax error, %T is not used as a statement", expr)
+		// }
 		if p.token.Type == SEMI {
 			p.nextToken()
 		}
@@ -138,7 +155,7 @@ func (p *parserImpl) parseExpr(prec int) (Expression, error) {
 	var err error
 	prefixFn, ok := p.prefixFns[p.token.Type]
 	if !ok {
-		return nil, errors.New("Prefix parse Function not found for: " + p.token.Lit)
+		return nil, errors.New("Prefix parse Function not found for [" + p.token.Lit + "]")
 	}
 	expr, err = prefixFn()
 	if err != nil {
@@ -147,7 +164,7 @@ func (p *parserImpl) parseExpr(prec int) (Expression, error) {
 	for prec < precedence(p.token.Type) {
 		infixFn, ok := p.infixFns[p.token.Type]
 		if !ok {
-			return nil, errors.New("Infix parse Function not found for: " + p.token.Lit)
+			return nil, errors.New("Infix parse Function not found for [" + p.token.Lit + "]")
 		}
 		expr, err = infixFn(expr, precedence(p.token.Type))
 		if err != nil {
@@ -167,16 +184,27 @@ func (p *parserImpl) parsePrefix0() (Expression, error) {
 	switch p.token.Type {
 	case IDENT:
 		expr, err = p.parseIdent()
-	case INT, STRING:
-		expr = &LiteralExpr{Token: p.token, Value: p.token.Lit}
+
+	// bool,int,string,list,map,tuple
+	case TRUE, FALSE:
+		v, _ := strconv.ParseBool(p.token.Lit)
+		expr = &BoolLitExpr{Token: p.token, Value: v}
 		p.nextToken()
-	case TRUE, FALSE, NULL, SELF:
-		expr = &LiteralExpr{Token: p.token, Value: p.token.Lit}
+	case INT:
+		v, _ := strconv.ParseInt(p.token.Lit, 10, 0)
+		expr = &IntLitExpr{Token: p.token, Value: v}
 		p.nextToken()
+	case STRING:
+		expr = &StringLitExpr{Token: p.token, Value: p.token.Lit}
+		p.nextToken()
+	case LBRACKET:
+		expr, err = p.parseList()
+	case LBRACE:
+		expr, err = p.parseMap()
 	case PLUS, MINUS, BANG, TILDE:
 		expr, err = p.parseUnary()
 	case LPAREN:
-		expr, err = p.parseGroup()
+		expr, err = p.parseGroupOrTuple()
 	case FUNCTION:
 		expr, err = p.parseFunction()
 	case NEW:
@@ -197,11 +225,98 @@ func (p *parserImpl) parseUnary() (Expression, error) {
 	return &UnaryExpr{Token: tok, Right: expr}, nil
 }
 
-func (p *parserImpl) parseGroup() (Expression, error) {
+func (p *parserImpl) parseList() (Expression, error) {
+	// [v1,v2,v3]
 	tok := p.token
+	p.accept(LBRACKET)
+	v := []Expression{}
+	if p.token.Type != RBRACKET {
+		first, err := p.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		v = append(v, first)
+		for p.token.Type == COMMA {
+			p.nextToken()
+			next, err := p.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			v = append(v, next)
+		}
+	}
+	p.accept(RBRACKET)
+	return &ListLitExpr{Token: tok, Value: v}, nil
+}
+
+func (p *parserImpl) parseMap() (Expression, error) {
+	// {k:v,k:v,}
+	tok := p.token
+	p.accept(LBRACE)
+	v := map[Expression]Expression{}
+	if p.token.Type != RBRACE {
+		firstKey, err := p.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		if !p.accept(COLON) {
+			return nil, fmt.Errorf("Syntax error, Missing ':' in map parsing")
+		}
+		firstVal, err := p.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		v[firstKey] = firstVal
+		// {k:v,k:v,}
+		for p.token.Type != RBRACE {
+			if p.token.Type == COMMA {
+				p.nextToken()
+			}
+			if p.token.Type == RBRACE {
+				break
+			}
+			nextKey, err := p.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			if !p.accept(COLON) {
+				return nil, fmt.Errorf("Syntax error, Missing ':' in map parsing")
+			}
+			nextVal, err := p.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			v[nextKey] = nextVal
+		}
+	}
+	p.accept(RBRACE)
+	return &MapLitExpr{Token: tok, Value: v}, nil
+}
+
+func (p *parserImpl) parseGroupOrTuple() (Expression, error) {
+	// Paren: ( x )
+	// Tuple: ( x, y,)
+	tok := p.token
+	p.accept(LPAREN)
 	expr, err := p.ParseExpr()
 	if err != nil {
 		return nil, err
+	}
+	if p.token.Type == COMMA {
+		p.nextToken()
+		exprs := []Expression{expr}
+		for p.token.Type != RPAREN {
+			expr, err := p.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			if !p.accept(COMMA) {
+				return nil, fmt.Errorf("Syntax error, Missing ',' in tuple parsing")
+			}
+			exprs = append(exprs, expr)
+		}
+		p.accept(RPAREN)
+		return &TupleLitExpr{Token: tok, Value: exprs}, nil
 	}
 	p.accept(RPAREN)
 	return &ParenExpr{Token: tok, Expr: expr}, nil
@@ -278,14 +393,14 @@ func (p *parserImpl) parseBinary(expr Expression, precedence int) (Expression, e
 			return expr, nil
 		}
 		args := []Expression{}
-		arg0, err := p.parseExpr(0)
+		arg0, err := p.parseExpr(precedence)
 		if err != nil {
 			return nil, err
 		}
 		args = append(args, arg0)
 		for p.token.Type == COMMA {
 			p.nextToken()
-			argn, err := p.parseExpr(0)
+			argn, err := p.parseExpr(precedence)
 			if err != nil {
 				return nil, err
 			}
@@ -310,6 +425,25 @@ func (p *parserImpl) parseBinary(expr Expression, precedence int) (Expression, e
 			return nil, err
 		}
 		return &TernaryExpr{Token: tok, Cond: expr, Then: thn, Else: els}, nil
+	case DOT:
+		tok := p.token
+		p.nextToken()
+		rhs, err := p.parseIdent()
+		if err != nil {
+			return nil, err
+		}
+		return &DotExpr{Token: tok, Lhs: expr, Rhs: rhs}, nil
+	case LBRACKET:
+		tok := p.token
+		p.nextToken()
+		idx, err := p.parseExpr(precedence)
+		if err != nil {
+			return nil, err
+		}
+		if !p.accept(RBRACKET) {
+			return nil, fmt.Errorf("Syntax error, Missing ']'")
+		}
+		return &IndexExpr{Token: tok, Lhs: expr, Index: idx}, nil
 	}
 	return nil, nil
 }

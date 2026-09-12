@@ -1,7 +1,5 @@
 package mk
 
-import "strconv"
-
 type Evaluator struct {
 	env *Env
 
@@ -31,24 +29,30 @@ func (f *Evaluator) VisitIdent(n *IdentExpr, x any) (Node, error) {
 	return n, nil
 }
 
-func (f *Evaluator) VisitLiteral(n *LiteralExpr, x any) (Node, error) {
-	switch n.Token.Type {
-	case INT:
-		v, _ := strconv.ParseInt(n.Token.Lit, 10, 0)
-		f.ret = NewInt(v)
-	case STRING:
-		f.ret = NewString(n.Token.Lit)
-	case TRUE:
-		f.ret = O_TRUE
-	case FALSE:
-		f.ret = O_FALSE
-	case NULL:
-		f.ret = O_NULL
-	default:
-		f.ret = O_NULL
+func (f *Evaluator) VisitMap(n *MapLitExpr, x any) (Node, error) {
+	m := NewMap()
+	for k, v := range n.Value {
+		k.Accept(f, x)
+		key := f.ret
+		v.Accept(f, x)
+		val := f.ret
+		m.Put(key, val)
 	}
+	f.ret = m
 	return n, nil
 }
+
+func (f *Evaluator) VisitString(n *StringLitExpr, x any) (Node, error) { return n, nil }
+
+func (f *Evaluator) VisitInt(n *IntLitExpr, x any) (Node, error) {
+	return n, nil
+}
+
+func (f *Evaluator) VisitList(n *ListLitExpr, x any) (Node, error) { return n, nil }
+
+func (f *Evaluator) VisitTuple(n *TupleLitExpr, x any) (Node, error) { return n, nil }
+
+func (f *Evaluator) VisitBool(n *BoolLitExpr, x any) (Node, error) { return n, nil }
 
 func (f *Evaluator) VisitUnary(n *UnaryExpr, x any) (Node, error) {
 	n.Right.Accept(f, 0)
@@ -168,9 +172,57 @@ func (f *Evaluator) VisitFn(n *FnExpr, x any) (Node, error) {
 
 func (f *Evaluator) VisitAssign(n *AssignExpr, x any) (Node, error) {
 	n.Rhs.Accept(f, x)
-	if id, ok := n.Lhs.(*IdentExpr); ok {
-		f.env.Put(id.Value, f.ret)
+	val := f.ret
+	switch left := n.Lhs.(type) {
+	case *IdentExpr:
+		f.env.Put(left.Value, val)
+	case *IndexExpr:
+		// list[index] = 10
+		// tuple[index] = 10
+		// map[index] = 10
+		left.Lhs.Accept(f, x)
+		targetObj := f.ret
+		left.Index.Accept(f, x)
+		indexObj := f.ret
+		switch obj := targetObj.(type) {
+		case *ListObj:
+			if index, ok := indexObj.(*IntObj); ok {
+				obj.Set(int(index.Value), val)
+			}
+		case *MapObj:
+			obj.Put(indexObj, val)
+		case *TupleObj:
+			if index, ok := indexObj.(*IntObj); ok {
+				obj.Set(int(index.Value), val)
+			}
+		}
+	case *DotExpr:
+		// x.name = 10
 	}
+	return n, nil
+}
+
+func (f *Evaluator) VisitIndex(n *IndexExpr, x any) (Node, error) {
+	n.Lhs.Accept(f, x)
+	lv := f.ret
+	n.Index.Accept(f, x)
+	iv := f.ret
+	switch obj := lv.(type) {
+	case *ListObj:
+		if index, ok := iv.(*IntObj); ok {
+			f.ret = obj.Get(int(index.Value))
+		}
+	case *MapObj:
+		f.ret = obj.Get(iv)
+	case *TupleObj:
+		if index, ok := iv.(*IntObj); ok {
+			f.ret = obj.Get(int(index.Value))
+		}
+	}
+	return n, nil
+}
+
+func (f *Evaluator) VisitDot(n *DotExpr, x any) (Node, error) {
 	return n, nil
 }
 

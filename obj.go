@@ -43,21 +43,21 @@ type StringObj struct {
 }
 
 type MapObj struct {
-	Value map[any]any
+	value map[Obj]Obj
 }
 
 type ListObj struct {
-	Value []any
+	value []Obj
 }
 
 type TupleObj struct {
-	Value []any
+	value []Obj
 }
 
 type FuncObj struct {
 	Name string
-	Args []any
-	Body []any
+	Args []Obj
+	Body []Obj
 	Call func(args []Obj) (Obj, bool)
 }
 
@@ -108,6 +108,99 @@ func (o *FuncObj) Type() ObjType {
 
 func (o *FuncObj) Inspect() string {
 	return o.Name
+}
+
+func (o *ListObj) Type() ObjType {
+	return OBJ_LIST
+}
+
+func (o *ListObj) Inspect() string {
+	return "[]"
+}
+
+func (o *ListObj) Set(k int, v Obj) Obj {
+	if k >= len(o.value) {
+		return O_NULL
+	}
+	ov := o.value[k]
+	o.value[k] = v
+	return ov
+}
+
+func (o *ListObj) Get(k int) Obj {
+	if k >= len(o.value) {
+		return O_NULL
+	}
+	return o.value[k]
+}
+
+func (o *ListObj) Add(val Obj) {
+	o.value = append(o.value, val)
+}
+
+func (o *MapObj) Type() ObjType {
+	return OBJ_MAP
+}
+
+func (o *MapObj) Inspect() string {
+	return "{}"
+}
+
+func (o *MapObj) Put(k, v Obj) {
+	o.value[k] = v
+}
+
+func (o *MapObj) Get(k Obj) Obj {
+	if v, ok := o.value[k]; ok {
+		return v
+	}
+	return O_NULL
+}
+
+func (o *TupleObj) Set(k int, v Obj) Obj {
+	if k >= len(o.value) {
+		return O_NULL
+	}
+	ov := o.value[k]
+	o.value[k] = v
+	return ov
+}
+
+func (o *TupleObj) Get(k int) Obj {
+	if k >= len(o.value) {
+		return O_NULL
+	}
+	return o.value[k]
+}
+
+func (o *TupleObj) Type() ObjType {
+	return OBJ_TUPLE
+}
+
+func (o *TupleObj) Inspect() string {
+	return "()"
+}
+
+func NewList() *ListObj {
+	return &ListObj{
+		value: []Obj{},
+	}
+}
+
+func NewTuple(values ...Obj) *TupleObj {
+	o := &TupleObj{
+		value: []Obj{},
+	}
+	for _, val := range values {
+		o.value = append(o.value, val)
+	}
+	return o
+}
+
+func NewMap() *MapObj {
+	return &MapObj{
+		value: map[Obj]Obj{},
+	}
 }
 
 func NewInt(v int64) *IntObj {

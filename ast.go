@@ -6,8 +6,15 @@ type Visitor interface {
 	VisitProgram(*Program, any) (Node, error)
 
 	// Expr
+	VisitIndex(*IndexExpr, any) (Node, error)
+	VisitDot(*DotExpr, any) (Node, error)
+	VisitString(*StringLitExpr, any) (Node, error)
+	VisitInt(*IntLitExpr, any) (Node, error)
+	VisitList(*ListLitExpr, any) (Node, error)
+	VisitTuple(*TupleLitExpr, any) (Node, error)
+	VisitMap(*MapLitExpr, any) (Node, error)
+	VisitBool(*BoolLitExpr, any) (Node, error)
 	VisitIdent(*IdentExpr, any) (Node, error)
-	VisitLiteral(*LiteralExpr, any) (Node, error)
 	VisitUnary(*UnaryExpr, any) (Node, error)
 	VisitBinary(*BinaryExpr, any) (Node, error)
 	VisitCall(*CallExpr, any) (Node, error)
@@ -52,6 +59,18 @@ type IdentExpr struct {
 	Value string
 }
 
+type DotExpr struct {
+	Token Token
+	Lhs   Expression
+	Rhs   *IdentExpr
+}
+
+type IndexExpr struct {
+	Token Token
+	Lhs   Expression
+	Index Expression
+}
+
 type UnaryExpr struct {
 	Token Token
 	Right Expression
@@ -75,15 +94,17 @@ type TernaryExpr struct {
 	Else  Expression
 }
 
-type ArrayAccessExpr struct {
-	Expr  Expression
-	Index Expression
+type LiteralExpr[T bool | string | int64 | []Expression | map[Expression]Expression] struct {
+	Token Token
+	Value T
 }
 
-type LiteralExpr struct {
-	Token Token
-	Value string
-}
+type BoolLitExpr LiteralExpr[bool]
+type IntLitExpr LiteralExpr[int64]
+type StringLitExpr LiteralExpr[string]
+type ListLitExpr LiteralExpr[[]Expression]
+type TupleLitExpr LiteralExpr[[]Expression]
+type MapLitExpr LiteralExpr[map[Expression]Expression]
 
 type AssignExpr struct {
 	Token Token
@@ -138,6 +159,94 @@ type ClassStmt struct {
 	Name  *IdentExpr
 }
 
+func (e *IndexExpr) exprNode() {
+}
+
+func (e *IndexExpr) Text() string {
+	return e.Token.Lit
+}
+
+func (e *IndexExpr) Accept(v Visitor, x any) (Node, error) {
+	return v.VisitIndex(e, x)
+}
+
+func (e *DotExpr) exprNode() {
+}
+
+func (e *DotExpr) Text() string {
+	return e.Token.Lit
+}
+
+func (e *DotExpr) Accept(v Visitor, x any) (Node, error) {
+	return v.VisitDot(e, x)
+}
+
+func (e *ListLitExpr) exprNode() {
+}
+
+func (e *ListLitExpr) Text() string {
+	return e.Token.Lit
+}
+
+func (e *ListLitExpr) Accept(v Visitor, x any) (Node, error) {
+	return v.VisitList(e, x)
+}
+
+func (e *MapLitExpr) exprNode() {
+}
+
+func (e *MapLitExpr) Text() string {
+	return e.Token.Lit
+}
+
+func (e *MapLitExpr) Accept(v Visitor, x any) (Node, error) {
+	return v.VisitMap(e, x)
+}
+
+func (e *TupleLitExpr) exprNode() {
+}
+
+func (e *TupleLitExpr) Text() string {
+	return e.Token.Lit
+}
+
+func (e *TupleLitExpr) Accept(v Visitor, x any) (Node, error) {
+	return v.VisitTuple(e, x)
+}
+
+func (e *IntLitExpr) exprNode() {
+}
+
+func (e *IntLitExpr) Text() string {
+	return e.Token.Lit
+}
+
+func (e *IntLitExpr) Accept(v Visitor, x any) (Node, error) {
+	return v.VisitInt(e, x)
+}
+
+func (e *StringLitExpr) exprNode() {
+}
+
+func (e *StringLitExpr) Text() string {
+	return e.Token.Lit
+}
+
+func (e *StringLitExpr) Accept(v Visitor, x any) (Node, error) {
+	return v.VisitString(e, x)
+}
+
+func (e *BoolLitExpr) exprNode() {
+}
+
+func (e *BoolLitExpr) Text() string {
+	return e.Token.Lit
+}
+
+func (e *BoolLitExpr) Accept(v Visitor, x any) (Node, error) {
+	return v.VisitBool(e, x)
+}
+
 func (e *IdentExpr) exprNode() {
 }
 
@@ -147,17 +256,6 @@ func (e *IdentExpr) Text() string {
 
 func (e *IdentExpr) Accept(v Visitor, x any) (Node, error) {
 	return v.VisitIdent(e, x)
-}
-
-func (e *LiteralExpr) exprNode() {
-}
-
-func (e *LiteralExpr) Text() string {
-	return e.Token.Lit
-}
-
-func (e *LiteralExpr) Accept(v Visitor, x any) (Node, error) {
-	return v.VisitLiteral(e, x)
 }
 
 func (e *UnaryExpr) exprNode() {

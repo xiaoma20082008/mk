@@ -28,12 +28,32 @@ func TestPrettyFormatter_Format(t *testing.T) {
 }`,
 		},
 		{
-			name: "for1",
+			name: "while1",
 			line: `while(a<20){ a= a+1; add(a,10);}`,
 			want: `while (a < 20) {
   a = a + 1;
   add(a, 10);
 }`,
+		},
+		{
+			name: "paren",
+			line: `(10)`,
+			want: `(10)`,
+		},
+		{
+			name: "let tuple",
+			line: `let a=(10,"20",false,);`,
+			want: `let a = (10, "20", false,);`,
+		},
+		{
+			name: "let list",
+			line: `let a= [10,"20",false];`,
+			want: `let a = [10, "20", false];`,
+		},
+		{
+			name: "let map",
+			line: `let a={1:10,"2":false,true:10};`,
+			want: `let a = {1: 10, "2": false, true: 10};`,
 		},
 	}
 	for _, tt := range tests {

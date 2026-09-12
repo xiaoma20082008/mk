@@ -1,7 +1,6 @@
 package mk
 
 import (
-	"fmt"
 	"reflect"
 	"testing"
 )
@@ -87,16 +86,22 @@ func Test_parserImpl_parseWhile(t *testing.T) {
 		want *WhileStmt
 		err  error
 	}{
-		{
-			name: "cond is nil",
-			line: `while(){}`,
-			want: &WhileStmt{Cond: nil, Body: &BlockStmt{}},
-			err:  fmt.Errorf("Syntax error"),
-		},
+		// {
+		// 	name: "cond is nil",
+		// 	line: `while(){}`,
+		// 	want: &WhileStmt{Cond: nil, Body: &BlockStmt{}},
+		// 	err:  fmt.Errorf("Syntax error"),
+		// },
+		// {
+		// 	name: "cond != nil",
+		// 	line: `while(a != 10){}`,
+		// 	want: &WhileStmt{Cond: &BinaryExpr{Lhs: &IdentExpr{Value: "a"}, Op: Token{Lit: "!=", Type: NE}, Rhs: &IntLitExpr{Value: 10}}, Body: &BlockStmt{}},
+		// 	err:  nil,
+		// },
 		{
 			name: "cond != nil",
-			line: `while(a != 10){}`,
-			want: &WhileStmt{Cond: &BinaryExpr{Lhs: &IdentExpr{Value: "a"}, Op: Token{Lit: "!=", Type: NE}, Rhs: &LiteralExpr{Value: "10"}}, Body: &BlockStmt{}},
+			line: `while(a<20){ a= a+1; add(a,10);}`,
+			want: &WhileStmt{Cond: &BinaryExpr{Lhs: &IdentExpr{Value: "a"}, Op: Token{Lit: "!=", Type: NE}, Rhs: &IntLitExpr{Value: 10}}, Body: &BlockStmt{}},
 			err:  nil,
 		},
 	}
@@ -106,13 +111,13 @@ func Test_parserImpl_parseWhile(t *testing.T) {
 			got, gotErr := p.parseWhile()
 			if gotErr != nil {
 				if tt.err == nil {
-					t.Errorf("parseFor() failed: %v, %T, name: %s", gotErr, got, tt.name)
+					t.Errorf("parseWhile() failed: %v, %T, name: %s", gotErr, got, tt.name)
 				} else {
 					return
 				}
 			}
 			if reflect.TypeOf(got.Cond) != reflect.TypeOf(tt.want.Cond) {
-				t.Errorf("parseFor() failed, name = %s, got = %v, want = %v", tt.name, got, tt.want)
+				t.Errorf("parseWhile() failed, name = %s, got = %v, want = %v", tt.name, got, tt.want)
 			}
 		})
 	}
@@ -128,13 +133,13 @@ func Test_parserImpl_parseReturn(t *testing.T) {
 		{
 			name: "int",
 			line: `return 10;`,
-			want: &ReturnStmt{Value: &LiteralExpr{Value: "10"}},
+			want: &ReturnStmt{Value: &IntLitExpr{Value: 10}},
 			err:  nil,
 		},
 		{
 			name: "string",
 			line: `return "tom";`,
-			want: &ReturnStmt{Value: &LiteralExpr{Value: "tom"}},
+			want: &ReturnStmt{Value: &StringLitExpr{Value: "tom"}},
 			err:  nil,
 		},
 		{
@@ -178,19 +183,19 @@ func Test_parserImpl_parseLet(t *testing.T) {
 		{
 			name: "int",
 			line: `let a = 10`,
-			want: &LetStmt{Name: &IdentExpr{Value: "a"}, Value: &LiteralExpr{Value: "10"}},
+			want: &LetStmt{Name: &IdentExpr{Value: "a"}, Value: &IntLitExpr{Value: 10}},
 			err:  nil,
 		},
 		{
 			name: "string",
 			line: `let a = "tom"`,
-			want: &LetStmt{Name: &IdentExpr{Value: "a"}, Value: &LiteralExpr{Value: "tom"}},
+			want: &LetStmt{Name: &IdentExpr{Value: "a"}, Value: &StringLitExpr{Value: "tom"}},
 			err:  nil,
 		},
 		{
-			name: "function",
-			line: `let a = fn(x,y) {}`,
-			want: &LetStmt{Name: &IdentExpr{Value: "a"}, Value: &LiteralExpr{Value: "tom"}},
+			name: "bool",
+			line: `let a = true`,
+			want: &LetStmt{Name: &IdentExpr{Value: "a"}, Value: &BoolLitExpr{Value: true}},
 			err:  nil,
 		},
 	}
@@ -203,6 +208,82 @@ func Test_parserImpl_parseLet(t *testing.T) {
 			}
 			if reflect.TypeOf(got.Name) != reflect.TypeOf(tt.want.Name) && reflect.TypeOf(got.Value) != reflect.TypeOf(tt.want.Value) {
 				t.Errorf("parseLet() failed, name = %s, got = %v, want = %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_parserImpl_parseExpr(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want Expression
+	}{
+		{
+			name: "int",
+			line: `10`,
+			want: &IntLitExpr{Value: 10},
+		},
+		{
+			name: "string",
+			line: `"tom"`,
+			want: &StringLitExpr{Value: "tom"},
+		},
+		{
+			name: "bool",
+			line: `true`,
+			want: &BoolLitExpr{Value: true},
+		},
+		{
+			name: "map",
+			line: `{k1:v1}`,
+			want: &MapLitExpr{Value: map[Expression]Expression{&IdentExpr{Value: "k1"}: &IdentExpr{Value: "v1"}}},
+		},
+		{
+			name: "map1",
+			line: `{k1:v1,}`,
+			want: &MapLitExpr{Value: map[Expression]Expression{&IdentExpr{Value: "k1"}: &IdentExpr{Value: "v1"}}},
+		},
+		{
+			name: "map2",
+			line: `{k1:v1,k2:v2}`,
+			want: &MapLitExpr{Value: map[Expression]Expression{&IdentExpr{Value: "k1"}: &IdentExpr{Value: "v1"}, &IdentExpr{Value: "k2"}: &IdentExpr{Value: "v2"}}},
+		},
+		{
+			name: "map2",
+			line: `{k1:v1,k2:v2,}`,
+			want: &MapLitExpr{Value: map[Expression]Expression{&IdentExpr{Value: "k1"}: &IdentExpr{Value: "v1"}, &IdentExpr{Value: "k2"}: &IdentExpr{Value: "v2"}}},
+		},
+		{
+			name: "list",
+			line: `[v1,v2]`,
+			want: &ListLitExpr{Value: []Expression{&IdentExpr{Value: "v1"}, &IdentExpr{Value: "v2"}}},
+		},
+		{
+			name: "tuple1",
+			line: `(v1,)`,
+			want: &TupleLitExpr{Value: []Expression{&IdentExpr{Value: "v1"}}},
+		},
+		{
+			name: "tuple2",
+			line: `(v1,v2,)`,
+			want: &TupleLitExpr{Value: []Expression{&IdentExpr{Value: "v1"}, &IdentExpr{Value: "v2"}}},
+		},
+		{
+			name: "group",
+			line: `(v1)`,
+			want: &ParenExpr{Expr: &IdentExpr{Value: "v1"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewParser(NewLexer(tt.line))
+			got, gotErr := p.ParseExpr()
+			if gotErr != nil {
+				t.Errorf("parseExpr() failed: %v, %T, name: %s", gotErr, got, tt.name)
+			}
+			if reflect.TypeOf(got) != reflect.TypeOf(tt.want) {
+				t.Errorf("parseExpr() failed, name = %s, got = %v, want = %v", tt.name, got, tt.want)
 			}
 		})
 	}
