@@ -15,6 +15,9 @@ func (e *Evaluator) Eval(p *Program) Obj {
 func (f *Evaluator) VisitProgram(n *Program, x any) (Node, error) {
 	for _, stmt := range n.Statements {
 		stmt.Accept(f, x)
+		if f.fin {
+			break
+		}
 	}
 	return n, nil
 }
@@ -42,17 +45,40 @@ func (f *Evaluator) VisitMap(n *MapLitExpr, x any) (Node, error) {
 	return n, nil
 }
 
-func (f *Evaluator) VisitString(n *StringLitExpr, x any) (Node, error) { return n, nil }
-
-func (f *Evaluator) VisitInt(n *IntLitExpr, x any) (Node, error) {
+func (f *Evaluator) VisitString(n *StringLitExpr, x any) (Node, error) {
+	f.ret = NewString(n.Value)
 	return n, nil
 }
 
-func (f *Evaluator) VisitList(n *ListLitExpr, x any) (Node, error) { return n, nil }
+func (f *Evaluator) VisitInt(n *IntLitExpr, x any) (Node, error) {
+	f.ret = NewInt(n.Value)
+	return n, nil
+}
 
-func (f *Evaluator) VisitTuple(n *TupleLitExpr, x any) (Node, error) { return n, nil }
+func (f *Evaluator) VisitList(n *ListLitExpr, x any) (Node, error) {
+	ret := NewList()
+	for _, expr := range n.Value {
+		expr.Accept(f, x)
+		ret.Add(f.ret)
+	}
+	f.ret = ret
+	return n, nil
+}
 
-func (f *Evaluator) VisitBool(n *BoolLitExpr, x any) (Node, error) { return n, nil }
+func (f *Evaluator) VisitTuple(n *TupleLitExpr, x any) (Node, error) {
+	vals := []Obj{}
+	for _, expr := range n.Value {
+		expr.Accept(f, x)
+		vals = append(vals, f.ret)
+	}
+	f.ret = NewTuple(vals...)
+	return n, nil
+}
+
+func (f *Evaluator) VisitBool(n *BoolLitExpr, x any) (Node, error) {
+	f.ret = NewBool(n.Value)
+	return n, nil
+}
 
 func (f *Evaluator) VisitUnary(n *UnaryExpr, x any) (Node, error) {
 	n.Right.Accept(f, 0)
@@ -118,8 +144,10 @@ func (f *Evaluator) VisitCall(n *CallExpr, x any) (Node, error) {
 	res, done := fn.Call(args)
 	f.ret = res
 	if done {
-		f.fin = false
+		// todo 暂时没想到什么情况下会放外面
+		// f.fin = false
 	}
+	f.fin = false
 	return n, nil
 }
 
@@ -230,9 +258,9 @@ func (f *Evaluator) VisitDot(n *DotExpr, x any) (Node, error) {
 func (f *Evaluator) VisitIf(n *IfStmt, x any) (Node, error) {
 	n.Cond.Accept(f, x)
 	cond := f.ret
-	if cond == O_TRUE {
+	if isTruthy(cond) {
 		n.Then.Accept(f, x)
-	} else {
+	} else if n.Else != nil {
 		n.Else.Accept(f, x)
 	}
 	return n, nil
@@ -248,7 +276,7 @@ func (f *Evaluator) VisitLet(n *LetStmt, x any) (Node, error) {
 func (f *Evaluator) VisitWhile(n *WhileStmt, x any) (Node, error) {
 	for {
 		n.Cond.Accept(f, x)
-		if !isTruthy(f.ret) {
+		if f.fin || !isTruthy(f.ret) {
 			break
 		}
 		n.Body.Accept(f, x)
@@ -273,8 +301,7 @@ func (f *Evaluator) VisitReturn(n *ReturnStmt, x any) (Node, error) {
 func (f *Evaluator) VisitBlock(n *BlockStmt, x any) (Node, error) {
 	for _, stmt := range n.Statements {
 		stmt.Accept(f, x)
-		_, done := f.ret, f.fin
-		if done {
+		if f.fin {
 			break
 		}
 	}
@@ -297,7 +324,7 @@ func evalIntOp(op string, lhs, rhs Obj) Obj {
 	case "+":
 		return NewInt(lv + rv)
 	case "-":
-		return NewInt(lv / rv)
+		return NewInt(lv - rv)
 	case "*":
 		return NewInt(lv * rv)
 	case "/":
