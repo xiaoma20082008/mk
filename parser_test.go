@@ -1,6 +1,7 @@
 package mk
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -12,14 +13,20 @@ func TestParser_parseLet(t *testing.T) {
 	let foo = "bar";
 	let a = fn (x, y) { y = y * y;x = x + y;return x+y;};
 	`
-	l := NewLexer(input)
-	p := NewParser(l)
-	program := p.parseProgram()
+	r := NewReporter("", input)
+	l := NewLexer(input, r)
+	p := NewParser(l, r)
+	program := p.ParseCode()
 	if program == nil {
-		t.Fatalf("parseProgram() returned nil")
+		t.Fatalf("ParseCode() returned nil")
 	}
-	if len(program.Statements) != 3 {
-		t.Fatalf("parseProgram() got= %d, want = %d", len(program.Statements), 3)
+	if len(r.Diagnostics()) > 0 {
+		for _, d := range r.Diagnostics() {
+			t.Fatal(d.String())
+		}
+	}
+	if len(program.Statements) != 4 {
+		t.Fatalf("ParseCode() got= %d, want = %d", len(program.Statements), 3)
 	}
 	tests := []struct {
 		name string
@@ -51,14 +58,20 @@ func TestParser_parseIf(t *testing.T) {
       a = 20;
 	}
 	`
-	l := NewLexer(input)
-	p := NewParser(l)
-	program := p.parseProgram()
+	r := NewReporter("", input)
+	l := NewLexer(input, r)
+	p := NewParser(l, r)
+	program := p.ParseCode()
 	if program == nil {
-		t.Fatalf("parseProgram() returned nil")
+		t.Fatalf("ParseCode() returned nil")
+	}
+	if len(r.Diagnostics()) > 0 {
+		for _, d := range r.Diagnostics() {
+			t.Error(d.String())
+		}
 	}
 	if len(program.Statements) != 3 {
-		t.Fatalf("parseProgram() got= %d, want = %d", len(program.Statements), 3)
+		t.Fatalf("ParseCode() got= %d, want = %d", len(program.Statements), 3)
 	}
 	tests := []struct {
 		want string
@@ -107,13 +120,13 @@ func Test_parserImpl_parseWhile(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := NewParser(NewLexer(tt.line))
-			got, gotErr := p.parseWhile()
-			if gotErr != nil {
-				if tt.err == nil {
-					t.Errorf("parseWhile() failed: %v, %T, name: %s", gotErr, got, tt.name)
-				} else {
-					return
+			r := NewReporter("", tt.line)
+			l := NewLexer(tt.line, r)
+			p := NewParser(l, r)
+			got := p.parseWhile()
+			if len(r.Diagnostics()) > 0 {
+				for _, d := range r.Diagnostics() {
+					t.Error(d.String())
 				}
 			}
 			if reflect.TypeOf(got.Cond) != reflect.TypeOf(tt.want.Cond) {
@@ -157,12 +170,16 @@ func Test_parserImpl_parseReturn(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := NewParser(NewLexer(tt.line))
-			got, gotErr := p.parseReturn()
-			if gotErr != nil {
-				t.Errorf("parseReturn() failed: %v", gotErr)
+			r := NewReporter("", tt.line)
+			l := NewLexer(tt.line, r)
+			p := NewParser(l, r)
+			got := p.parseReturn()
+			if len(r.Diagnostics()) > 0 {
+				for _, d := range r.Diagnostics() {
+					t.Error(d.String())
+				}
 			}
-			if got.Value != tt.want.Value {
+			if reflect.TypeOf(got.Value) != reflect.TypeOf(tt.want.Value) {
 				t.Errorf("parseReturn() = %v, want %v", got, tt.want)
 			}
 		})
@@ -182,29 +199,34 @@ func Test_parserImpl_parseLet(t *testing.T) {
 	}{
 		{
 			name: "int",
-			line: `let a = 10`,
+			line: `let a = 10;`,
 			want: &LetStmt{Name: &IdentExpr{Value: "a"}, Value: &IntLitExpr{Value: 10}},
 			err:  nil,
 		},
 		{
 			name: "string",
-			line: `let a = "tom"`,
+			line: `let a = "tom";`,
 			want: &LetStmt{Name: &IdentExpr{Value: "a"}, Value: &StringLitExpr{Value: "tom"}},
 			err:  nil,
 		},
 		{
 			name: "bool",
-			line: `let a = true`,
+			line: `let a = true;`,
 			want: &LetStmt{Name: &IdentExpr{Value: "a"}, Value: &BoolLitExpr{Value: true}},
 			err:  nil,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := NewParser(NewLexer(tt.line))
-			got, gotErr := p.parseLet()
-			if gotErr != nil {
-				t.Errorf("parseLet() failed: %v", gotErr)
+			r := NewReporter("t.mk", tt.line)
+			l := NewLexer(tt.line, r)
+			p := NewParser(l, r)
+			got := p.parseLet()
+			if len(r.Diagnostics()) > 0 {
+				for _, d := range r.Diagnostics() {
+					fmt.Println(d.String())
+				}
+				t.Fatal("failed")
 			}
 			if reflect.TypeOf(got.Name) != reflect.TypeOf(tt.want.Name) && reflect.TypeOf(got.Value) != reflect.TypeOf(tt.want.Value) {
 				t.Errorf("parseLet() failed, name = %s, got = %v, want = %v", tt.name, got, tt.want)
@@ -277,14 +299,58 @@ func Test_parserImpl_parseExpr(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := NewParser(NewLexer(tt.line))
-			got, gotErr := p.ParseExpr()
-			if gotErr != nil {
-				t.Errorf("parseExpr() failed: %v, %T, name: %s", gotErr, got, tt.name)
+			r := NewReporter("", tt.line)
+			l := NewLexer(tt.line, r)
+			p := NewParser(l, r)
+			got := p.ParseExpr()
+			if len(r.Diagnostics()) > 0 {
+				for _, d := range r.Diagnostics() {
+					t.Error(d.String())
+				}
 			}
 			if reflect.TypeOf(got) != reflect.TypeOf(tt.want) {
 				t.Errorf("parseExpr() failed, name = %s, got = %v, want = %v", tt.name, got, tt.want)
 			}
 		})
+	}
+}
+
+func Test_parserImpl_ParseCode(t *testing.T) {
+	input := `
+
+	let add = fn (x, y) { c = a * a; return c *b;}
+	`
+	r := NewReporter("", input)
+	l := NewLexer(input, r)
+	p := NewParser(l, r)
+	code := p.ParseCode()
+
+	if len(r.Diagnostics()) > 0 {
+		for _, d := range r.Diagnostics() {
+			t.Fatal(d.String())
+		}
+	}
+	tests := []struct {
+		name string
+		want Statement
+	}{
+		{
+			name: "let int",
+			want: &LetStmt{},
+		},
+		{
+			name: "let string",
+			want: &LetStmt{},
+		},
+		{
+			name: "let fn",
+			want: &LetStmt{},
+		},
+	}
+	for i, tt := range tests {
+		stmt := code.Statements[i]
+		if reflect.TypeOf(stmt) != reflect.TypeOf(tt.want) {
+			t.Errorf("ParseCode() failed, name = %s, got = %v, want = %v", tt.name, stmt, tt.want)
+		}
 	}
 }

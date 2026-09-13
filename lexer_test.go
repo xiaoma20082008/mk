@@ -77,14 +77,14 @@ func TestLexer_NextToken(t *testing.T) {
 
 		{EOF, ""},
 	}
-	l := NewLexer(input)
+	l := NewLexer(input, NewReporter("", input))
 	for i, tt := range tests {
 		tok := l.NextToken()
 		if tok.Type != TokenType(tt.Type) {
-			t.Fatalf("tests[%d] - tokenType wrong. want=%q, got =%q, ln %d, col %d", i, tt.Type, tok.Type, l.ln, l.col)
+			t.Fatalf("tests[%d] - tokenType wrong. want=%q, got =%q", i, tt.Type, tok.Type)
 		}
 		if tok.Lit != tt.Lit {
-			t.Fatalf("tests[%d] - tokenLit wrong. want=%q, got =%q, ln %d, col %d", i, tt.Lit, tok.Lit, l.ln, l.col)
+			t.Fatalf("tests[%d] - tokenLit wrong. want=%q, got =%q", i, tt.Lit, tok.Lit)
 		}
 	}
 }

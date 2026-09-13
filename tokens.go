@@ -2,8 +2,11 @@ package mk
 
 type TokenType string
 type Token struct {
-	Type TokenType
-	Lit  string
+	Type   TokenType
+	Lit    string
+	Line   int
+	Column int
+	Offset int
 }
 
 const (
@@ -67,7 +70,7 @@ const (
 	SIZEOF   = "SIZEOF"
 )
 
-var DUMMY = Token{ERR, ""}
+var DUMMY = Token{ERR, "", 0, 0, 0}
 
 var keywords = map[string]TokenType{
 	"fn":     FUNCTION,
@@ -125,6 +128,6 @@ func precedence(k TokenType) int {
 	return 0
 }
 
-func newToken(typ TokenType, ch byte) Token {
-	return Token{Type: typ, Lit: string(ch)}
+func NewToken(typ TokenType, lit string, line, col, pos int) Token {
+	return Token{Type: typ, Lit: lit, Line: line, Column: col, Offset: pos}
 }

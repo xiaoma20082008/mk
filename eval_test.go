@@ -32,14 +32,15 @@ func TestEvaluator_Eval(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			l := NewLexer(tt.line)
-			p := NewParser(l)
+			r := NewReporter("", tt.line)
+			l := NewLexer(tt.line, r)
+			p := NewParser(l, r)
 			program := p.ParseCode()
 			env := NewEnv(nil)
 			e := NewEvaluator(env)
-			r := e.Eval(program)
-			if r.Inspect() != tt.want {
-				t.Errorf("Format() = \n%v\n, want \n%v", r.Inspect(), tt.want)
+			res := e.Eval(program)
+			if res.Inspect() != tt.want {
+				t.Errorf("Format() = \n%v\n, want \n%v", res.Inspect(), tt.want)
 			}
 		})
 	}

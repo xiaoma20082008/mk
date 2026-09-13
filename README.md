@@ -5,8 +5,6 @@ The monkey programming language written by go
 ## Phase 1: Lexer
 
 - [x] Lexer
-- [x] Parser: Using [Pratt parser](https://tdop.github.io/)
-- [x] Formatter: Using visitor pattern
 
 ## Phase 2: Parser
 

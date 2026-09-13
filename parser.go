@@ -1,41 +1,37 @@
 package mk
 
 import (
-	"errors"
-	"fmt"
 	"strconv"
 )
 
 type Parser interface {
-	ParseCode() (*Program, error)
-	ParseExpr() (Expression, error)
-	ParseStmt() (Statement, error)
-	Errors() []error
+	ParseCode() *Program
+	ParseExpr() Expression
+	ParseStmt() Statement
 }
 
-type prefixParseFn func() (Expression, error)
-type infixParseFn func(Expression, int) (Expression, error)
+type prefixParseFn func() Expression
+type infixParseFn func(Expression) Expression
 
 type parserImpl struct {
 	Parser
-	l *Lexer
+	l Lexer
+	r DiagnosticReporter
 
-	token Token
+	token     Token
+	prevToken Token
 
 	prefixFns map[TokenType]prefixParseFn
 	infixFns  map[TokenType]infixParseFn
-
-	errors []error
 }
 
-func NewParser(l *Lexer) *parserImpl {
+func NewParser(l Lexer, r DiagnosticReporter) *parserImpl {
 	p := &parserImpl{
 		l: l,
+		r: r,
 
 		prefixFns: map[TokenType]prefixParseFn{},
 		infixFns:  map[TokenType]infixParseFn{},
-
-		errors: []error{},
 	}
 	// 1.
 	p.prefixFns[IDENT] = p.parsePrefix0
@@ -76,22 +72,31 @@ func NewParser(l *Lexer) *parserImpl {
 	p.infixFns[LTLT] = p.parseBinary
 	p.infixFns[GTGT] = p.parseBinary
 	// 3. a? b: c
-	p.infixFns[QUESTION] = p.parseBinary
+	p.infixFns[QUESTION] = p.parseTernary
 	// 4. (
-	p.infixFns[LPAREN] = p.parseBinary
+	p.infixFns[LPAREN] = p.parseCall
 	// 5. .
-	p.infixFns[DOT] = p.parseBinary
+	p.infixFns[DOT] = p.parseDot
 	// 6. [
-	p.infixFns[LBRACKET] = p.parseBinary
+	p.infixFns[LBRACKET] = p.parseIndex
 	p.nextToken()
 	return p
 }
 
-func (p *parserImpl) ParseExpr() (Expression, error) {
+func (p *parserImpl) ParseExpr() Expression {
 	return p.parseExpr(0)
 }
 
-func (p *parserImpl) ParseStmt() (Statement, error) {
+func (p *parserImpl) ParseStmt() Statement {
+	if p.token.Type == EOF {
+		return nil
+	}
+	if p.token.Type == SEMI {
+		p.nextToken()
+	}
+	if p.token.Type == EOF {
+		return nil
+	}
 	switch p.token.Type {
 	case LET:
 		return p.parseLet()
@@ -104,45 +109,18 @@ func (p *parserImpl) ParseStmt() (Statement, error) {
 	case LBRACE:
 		return p.parseBlock()
 	default:
-		// tok := p.token
-		expr, err := p.ParseExpr()
-		if err != nil {
-			return nil, err
-		}
-		// switch expr.(type) {
-		// case *AssignExpr, *CallExpr:
-		// 	break
-		// default:
-		// 	return nil, fmt.Errorf("Syntax error, Missing ';' when parsing %T", tok)
-		// }
-		// if !p.accept(SEMI) {
-		// 	return nil, fmt.Errorf("Syntax error, %T is not used as a statement", expr)
-		// }
-		if p.token.Type == SEMI {
-			p.nextToken()
-		}
-		return &ExprStmt{Expr: expr}, nil
+		expr := p.ParseExpr()
+		p.expect(SEMI)
+		return &ExprStmt{Expr: expr}
 	}
 }
 
 func (p *parserImpl) ParseCode() *Program {
-	return p.parseProgram()
-}
-
-func (p *parserImpl) Errors() []error {
-	return p.errors
-}
-
-func (p *parserImpl) parseProgram() *Program {
 	program := &Program{
 		Statements: []Statement{},
 	}
 	for p.token.Type != EOF {
-		stmt, err := p.ParseStmt()
-		if err != nil {
-			p.errors = append(p.errors, err)
-			continue
-		}
+		stmt := p.safeParseStmt()
 		if stmt != nil {
 			program.Statements = append(program.Statements, stmt)
 		}
@@ -150,431 +128,351 @@ func (p *parserImpl) parseProgram() *Program {
 	return program
 }
 
-func (p *parserImpl) parseExpr(prec int) (Expression, error) {
+func (p *parserImpl) safeParseStmt() (stmt Statement) {
+	defer func() {
+		if r := recover(); r != nil {
+			if _, ok := r.(parsingError); ok {
+				p.crashRecovery()
+				stmt = nil
+				return
+			} else {
+				panic(r)
+			}
+		}
+	}()
+	return p.ParseStmt()
+}
+
+func (p *parserImpl) crashRecovery() {
+	p.nextToken()
+	for p.token.Type != EOF {
+		if p.token.Type == SEMI {
+			p.nextToken()
+			return
+		}
+		switch p.token.Type {
+		case LET, IF, WHILE, RETURN, FUNCTION:
+			return
+		}
+		p.nextToken()
+	}
+}
+
+func (p *parserImpl) parseExpr(prec int) Expression {
 	var expr Expression
-	var err error
 	prefixFn, ok := p.prefixFns[p.token.Type]
 	if !ok {
-		return nil, errors.New("Prefix parse Function not found for [" + p.token.Lit + "]")
+		line, col := p.l.LineMap(p.token.Offset)
+		p.r.Report(ErrNoPrefixParseFunc, line, col, p.token.Lit)
+		panic(parsingError{})
 	}
-	expr, err = prefixFn()
-	if err != nil {
-		return nil, err
-	}
+	expr = prefixFn()
 	for prec < precedence(p.token.Type) {
 		infixFn, ok := p.infixFns[p.token.Type]
 		if !ok {
-			return nil, errors.New("Infix parse Function not found for [" + p.token.Lit + "]")
+			return expr
 		}
-		expr, err = infixFn(expr, precedence(p.token.Type))
-		if err != nil {
-			return nil, err
-		}
+		expr = infixFn(expr)
 	}
-	return expr, nil
+	return expr
 }
 
-func (p *parserImpl) parsePrefix0() (Expression, error) {
+func (p *parserImpl) parsePrefix0() Expression {
 	// 1. 字面量: ident
 	// 2. 数据类型: string,int,true,false,null,self
 	// 3. 一元运算符: +5,-10,!false,~x,typeof(),sizeof()
 	// 4. 复合表达式: (), fn, new
 	var expr Expression
-	var err error
 	switch p.token.Type {
 	case IDENT:
-		expr, err = p.parseIdent()
-
+		expr = p.parseIdent()
 	// bool,int,string,list,map,tuple
 	case TRUE, FALSE:
 		v, _ := strconv.ParseBool(p.token.Lit)
 		expr = &BoolLitExpr{Token: p.token, Value: v}
 		p.nextToken()
 	case INT:
-		v, _ := strconv.ParseInt(p.token.Lit, 10, 0)
+		v, _ := strconv.ParseInt(p.token.Lit, 10, 64)
 		expr = &IntLitExpr{Token: p.token, Value: v}
 		p.nextToken()
 	case STRING:
 		expr = &StringLitExpr{Token: p.token, Value: p.token.Lit}
 		p.nextToken()
 	case LBRACKET:
-		expr, err = p.parseList()
+		expr = p.parseList()
 	case LBRACE:
-		expr, err = p.parseMap()
+		expr = p.parseMap()
 	case PLUS, MINUS, BANG, TILDE:
-		expr, err = p.parseUnary()
+		expr = p.parseUnary()
 	case LPAREN:
-		expr, err = p.parseGroupOrTuple()
+		expr = p.parseGroupOrTuple()
 	case FUNCTION:
-		expr, err = p.parseFunction()
+		expr = p.parseFunction()
 	case NEW:
-		expr, err = p.parseNew()
+		expr = p.parseNew()
 	default:
-		err = errors.New("")
+		line, col := p.l.LineMap(p.token.Offset)
+		p.r.Report(ErrUnknownPrefixKind, line, col, p.token.Lit)
+		panic(parsingError{})
 	}
-	return expr, err
+	return expr
 }
 
-func (p *parserImpl) parseUnary() (Expression, error) {
+func (p *parserImpl) parseUnary() Expression {
 	tok := p.token
 	p.nextToken()
-	expr, err := p.parseExpr(precedence(tok.Type))
-	if err != nil {
-		return nil, err
-	}
-	return &UnaryExpr{Token: tok, Right: expr}, nil
+	expr := p.parseExpr(precedence(tok.Type))
+	return &UnaryExpr{Token: tok, Right: expr}
 }
 
-func (p *parserImpl) parseList() (Expression, error) {
+func (p *parserImpl) parseList() Expression {
 	// [v1,v2,v3]
 	tok := p.token
-	p.accept(LBRACKET)
+	p.expect(LBRACKET)
 	v := []Expression{}
 	if p.token.Type != RBRACKET {
-		first, err := p.ParseExpr()
-		if err != nil {
-			return nil, err
-		}
-		v = append(v, first)
+		v = append(v, p.ParseExpr())
 		for p.token.Type == COMMA {
 			p.nextToken()
-			next, err := p.ParseExpr()
-			if err != nil {
-				return nil, err
-			}
-			v = append(v, next)
+			v = append(v, p.ParseExpr())
 		}
 	}
-	p.accept(RBRACKET)
-	return &ListLitExpr{Token: tok, Value: v}, nil
+	p.expect(RBRACKET)
+	return &ListLitExpr{Token: tok, Value: v}
 }
 
-func (p *parserImpl) parseMap() (Expression, error) {
+func (p *parserImpl) parseMap() Expression {
 	// {k:v,k:v,}
 	tok := p.token
-	p.accept(LBRACE)
+	p.expect(LBRACE)
 	v := map[Expression]Expression{}
 	if p.token.Type != RBRACE {
-		firstKey, err := p.ParseExpr()
-		if err != nil {
-			return nil, err
-		}
-		if !p.accept(COLON) {
-			return nil, fmt.Errorf("Syntax error, Missing ':' in map parsing")
-		}
-		firstVal, err := p.ParseExpr()
-		if err != nil {
-			return nil, err
-		}
-		v[firstKey] = firstVal
-		// {k:v,k:v,}
-		for p.token.Type != RBRACE {
-			if p.token.Type == COMMA {
-				p.nextToken()
-			}
-			if p.token.Type == RBRACE {
+		key := p.ParseExpr()
+		p.expect(COLON)
+		val := p.ParseExpr()
+		v[key] = val
+
+		for p.token.Type == COMMA {
+			p.nextToken()
+			if p.token.Type == RBRACE { // 支持尾随逗号 {a: 1, b: 2, }
 				break
 			}
-			nextKey, err := p.ParseExpr()
-			if err != nil {
-				return nil, err
-			}
-			if !p.accept(COLON) {
-				return nil, fmt.Errorf("Syntax error, Missing ':' in map parsing")
-			}
-			nextVal, err := p.ParseExpr()
-			if err != nil {
-				return nil, err
-			}
-			v[nextKey] = nextVal
+			key := p.ParseExpr()
+			p.expect(COLON)
+			val := p.ParseExpr()
+			v[key] = val
 		}
 	}
-	p.accept(RBRACE)
-	return &MapLitExpr{Token: tok, Value: v}, nil
+	p.expect(RBRACE)
+	return &MapLitExpr{Token: tok, Value: v}
 }
 
-func (p *parserImpl) parseGroupOrTuple() (Expression, error) {
+func (p *parserImpl) parseGroupOrTuple() Expression {
 	// Paren: ( x )
 	// Tuple: ( x, y,)
 	tok := p.token
-	p.accept(LPAREN)
-	expr, err := p.ParseExpr()
-	if err != nil {
-		return nil, err
+	p.expect(LPAREN)
+	// 处理空元组 ()
+	if p.token.Type == RPAREN {
+		p.expect(RPAREN)
+		return &TupleLitExpr{Token: tok, Value: []Expression{}}
 	}
+	expr := p.ParseExpr()
 	if p.token.Type == COMMA {
 		p.nextToken()
 		exprs := []Expression{expr}
 		for p.token.Type != RPAREN {
-			expr, err := p.ParseExpr()
-			if err != nil {
-				return nil, err
-			}
-			if !p.accept(COMMA) {
-				return nil, fmt.Errorf("Syntax error, Missing ',' in tuple parsing")
-			}
-			exprs = append(exprs, expr)
-		}
-		p.accept(RPAREN)
-		return &TupleLitExpr{Token: tok, Value: exprs}, nil
-	}
-	p.accept(RPAREN)
-	return &ParenExpr{Token: tok, Expr: expr}, nil
-}
-
-func (p *parserImpl) parseFunction() (Expression, error) {
-	tok := p.token
-	p.accept(FUNCTION)
-	args := []*IdentExpr{}
-	p.accept(LPAREN)
-	if p.token.Type == IDENT {
-		ident, err := p.parseIdent()
-		if err != nil {
-			return nil, err
-		}
-		args = append(args, ident)
-		for {
-			if p.token.Type == COMMA {
-				p.nextToken()
-				ident, err := p.parseIdent()
-				if err != nil {
-					return nil, err
-				}
-				args = append(args, ident)
-			} else {
+			if p.token.Type == RPAREN { // 支持尾随逗号 (1, 2, )
 				break
 			}
+			exprs = append(exprs, p.ParseExpr())
+			if p.token.Type == COMMA {
+				p.nextToken()
+			} else if p.token.Type != RPAREN {
+				p.expect(COMMA) // 既没有逗号也没有右括号，强制报缺逗号错误
+			}
+		}
+		p.expect(RPAREN)
+		return &TupleLitExpr{Token: tok, Value: exprs}
+	}
+	p.expect(RPAREN)
+	return &ParenExpr{Token: tok, Expr: expr}
+}
+
+func (p *parserImpl) parseFunction() Expression {
+	// fn(x,y) {}
+	tok := p.token
+	p.expect(FUNCTION)
+	p.expect(LPAREN)
+	args := []*IdentExpr{}
+	if p.token.Type == IDENT {
+		args = append(args, p.parseIdent())
+		for p.token.Type == COMMA {
+			p.nextToken()
+			args = append(args, p.parseIdent())
 		}
 	}
-	p.accept(RPAREN)
-	body, err := p.parseBlock()
-	if err != nil {
-		return nil, err
-	}
-	return &FnExpr{Token: tok, Args: args, Body: body}, nil
+	p.expect(RPAREN)
+	body := p.parseBlock()
+	return &FnExpr{Token: tok, Args: args, Body: body}
 }
 
-func (p *parserImpl) parseNew() (Expression, error) {
-	return nil, nil
+func (p *parserImpl) parseNew() Expression {
+	return nil
 }
 
-func (p *parserImpl) parseIdent() (*IdentExpr, error) {
+func (p *parserImpl) parseIdent() *IdentExpr {
 	if p.token.Type != IDENT {
-		return nil, errors.New("")
+		line, col := p.l.LineMap(p.token.Offset)
+		p.r.Report(ErrExpectedToken, line, col, p.token.Lit)
+		panic(parsingError{})
 	}
 	e := &IdentExpr{Token: p.token, Value: p.token.Lit}
 	p.nextToken()
-	return e, nil
+	return e
 }
 
-func (p *parserImpl) parseBinary(expr Expression, precedence int) (Expression, error) {
-	switch p.token.Type {
-	case ASSIGN:
-		tok := p.token
-		p.nextToken()
-		right, err := p.parseExpr(precedence)
-		if err != nil {
-			return nil, err
-		}
-		return &AssignExpr{Token: tok, Lhs: expr, Rhs: right}, nil
-	case PLUS, MINUS, STAR, SLASH, LT, LE, GT, GE, NE, EQ, LTLT, GTGT:
-		tok := p.token
-		p.nextToken()
-		right, err := p.parseExpr(precedence)
-		if err != nil {
-			return nil, err
-		}
-		return &BinaryExpr{Lhs: expr, Op: tok, Rhs: right}, nil
-	case LPAREN:
-		expr := &CallExpr{Fn: expr}
-		p.nextToken()
-		if p.token.Type == RPAREN {
-			p.nextToken()
-			return expr, nil
-		}
-		args := []Expression{}
-		arg0, err := p.parseExpr(precedence)
-		if err != nil {
-			return nil, err
-		}
-		args = append(args, arg0)
+func (p *parserImpl) parseCall(left Expression) Expression {
+	expr := &CallExpr{Fn: left}
+	p.expect(LPAREN)
+
+	args := []Expression{}
+	if p.token.Type != RPAREN {
+		args = append(args, p.parseExpr(0))
 		for p.token.Type == COMMA {
 			p.nextToken()
-			argn, err := p.parseExpr(precedence)
-			if err != nil {
-				return nil, err
-			}
-			args = append(args, argn)
+			args = append(args, p.parseExpr(0))
 		}
-		p.accept(RPAREN)
-		expr.Args = args
-		if p.token.Type == SEMI {
-			p.nextToken()
-		}
-		return expr, nil
-	case QUESTION:
-		tok := p.token
-		p.nextToken()
-		thn, err := p.parseExpr(precedence)
-		if err != nil {
-			return nil, err
-		}
-		p.accept(COLON)
-		els, err := p.parseExpr(precedence)
-		if err != nil {
-			return nil, err
-		}
-		return &TernaryExpr{Token: tok, Cond: expr, Then: thn, Else: els}, nil
-	case DOT:
-		tok := p.token
-		p.nextToken()
-		rhs, err := p.parseIdent()
-		if err != nil {
-			return nil, err
-		}
-		return &DotExpr{Token: tok, Lhs: expr, Rhs: rhs}, nil
-	case LBRACKET:
-		tok := p.token
-		p.nextToken()
-		idx, err := p.parseExpr(precedence)
-		if err != nil {
-			return nil, err
-		}
-		if !p.accept(RBRACKET) {
-			return nil, fmt.Errorf("Syntax error, Missing ']'")
-		}
-		return &IndexExpr{Token: tok, Lhs: expr, Index: idx}, nil
 	}
-	return nil, nil
+	p.expect(RPAREN)
+	expr.Args = args
+	return expr
+}
+
+func (p *parserImpl) parseTernary(left Expression) Expression {
+	tok := p.token
+	prec := precedence(tok.Type)
+	p.nextToken()
+
+	thn := p.parseExpr(0) // 三元中部表达式通常允许从最低优先级重新解析
+	p.expect(COLON)
+	els := p.parseExpr(prec)
+
+	return &TernaryExpr{Token: tok, Cond: left, Then: thn, Else: els}
+}
+
+func (p *parserImpl) parseDot(left Expression) Expression {
+	tok := p.token
+	p.expect(DOT)
+	rhs := p.parseIdent()
+	return &DotExpr{Token: tok, Lhs: left, Rhs: rhs}
+}
+
+func (p *parserImpl) parseIndex(left Expression) Expression {
+	tok := p.token
+	p.expect(LBRACKET)
+	idx := p.parseExpr(0)
+	p.expect(RBRACKET)
+	return &IndexExpr{Token: tok, Lhs: left, Index: idx}
+}
+
+func (p *parserImpl) parseBinary(left Expression) Expression {
+	tok := p.token
+	prec := precedence(p.token.Type)
+	p.nextToken()
+	right := p.parseExpr(prec)
+	if tok.Type == ASSIGN {
+		return &AssignExpr{Token: tok, Lhs: left, Rhs: right}
+	}
+	return &BinaryExpr{Op: tok, Lhs: left, Rhs: right}
 }
 
 func (p *parserImpl) nextToken() {
+	p.prevToken = p.token
 	p.token = p.l.NextToken()
 }
 
 func (p *parserImpl) peekToken() Token {
-	return p.l.Lookhead(1)
+	return p.l.Lookahead(1)
 }
 
-func (p *parserImpl) parseLet() (*LetStmt, error) {
-	if !p.accept(LET) {
-		return nil, errors.New("Expect let")
-	}
-	name := &IdentExpr{Token: p.token, Value: p.token.Lit}
-	p.nextToken()
-
-	if !p.accept(ASSIGN) {
-		return nil, errors.New("Expect =")
-	}
-	expr, err := p.ParseExpr()
-	if err != nil {
-		return nil, err
-	}
-
-	if p.token.Type == SEMI {
-		p.nextToken()
-	}
-	return &LetStmt{Name: name, Value: expr}, nil
+func (p *parserImpl) parseLet() *LetStmt {
+	// let xxx = xxx ;
+	p.expect(LET)
+	name := p.parseIdent()
+	p.expect(ASSIGN)
+	expr := p.ParseExpr()
+	p.expect(SEMI)
+	return &LetStmt{Name: name, Value: expr}
 }
 
-func (p *parserImpl) parseIf() (*IfStmt, error) {
+func (p *parserImpl) parseIf() *IfStmt {
 	tok := p.token
-	if !p.accept(IF) {
-		return nil, errors.New("Expect if")
-	}
-	p.accept(LPAREN)
-	cond, err := p.ParseExpr()
-	if err != nil {
-		return nil, err
-	}
-	p.accept(RPAREN)
-	then, err := p.parseBlock()
-	if err != nil {
-		return nil, err
-	}
+	p.expect(IF)
+	p.expect(LPAREN)
+	cond := p.ParseExpr()
+	p.expect(RPAREN)
+	then := p.parseBlock()
 
-	s := &IfStmt{}
-	s.Token = tok
-	s.Cond = cond
-	s.Then = then
-
+	s := &IfStmt{Token: tok, Cond: cond, Then: then}
 	if p.token.Type == ELSE {
 		p.nextToken()
-		els, err := p.parseBlock()
-		if err != nil {
-			return nil, err
-		}
-		s.Else = els
+		s.Else = p.parseBlock()
 	}
-	return s, nil
+	return s
 }
 
-func (p *parserImpl) parseWhile() (*WhileStmt, error) {
+func (p *parserImpl) parseWhile() *WhileStmt {
 	tok := p.token
-	p.accept(WHILE)
-	if !p.accept(LPAREN) {
-		return nil, fmt.Errorf("Syntax error, Missing '{' after while.")
-	}
-	var cond Expression
-	var err error
-	if p.token.Type == RPAREN {
-		return nil, fmt.Errorf("Syntax error, Missing 'condition' in while.")
-	}
-	cond, err = p.ParseExpr()
-	if err != nil {
-		return nil, err
-	}
-
-	if !p.accept(RPAREN) {
-		return nil, fmt.Errorf("Syntax error, Missing ')' after while condition.")
-	}
-
-	body, err := p.parseBlock()
-	if err != nil {
-		return nil, err
-	}
-
-	return &WhileStmt{Token: tok, Cond: cond, Body: body}, nil
+	p.expect(WHILE)
+	p.expect(LPAREN)
+	cond := p.ParseExpr()
+	p.expect(RPAREN)
+	body := p.parseBlock()
+	return &WhileStmt{Token: tok, Cond: cond, Body: body}
 }
 
-func (p *parserImpl) parseBlock() (*BlockStmt, error) {
+func (p *parserImpl) parseBlock() *BlockStmt {
 	tok := p.token
-	p.accept(LBRACE)
+	p.expect(LBRACE)
 	stmts := []Statement{}
-	for p.token.Type != RBRACE {
-		stmt, err := p.ParseStmt()
-		if err != nil {
-			return nil, err
+	for p.token.Type != RBRACE && p.token.Type != EOF {
+		stmt := p.safeParseStmt()
+		if stmt != nil {
+			stmts = append(stmts, stmt)
 		}
-		stmts = append(stmts, stmt)
 	}
-	p.accept(RBRACE)
-	return &BlockStmt{Token: tok, Statements: stmts}, nil
+	p.expect(RBRACE)
+	return &BlockStmt{Token: tok, Statements: stmts}
 }
 
-func (p *parserImpl) parseReturn() (*ReturnStmt, error) {
+func (p *parserImpl) parseReturn() *ReturnStmt {
+	// return;
+	// return xxx;
 	tok := p.token
-	p.accept(RETURN)
+	p.expect(RETURN)
 	var expr Expression
-	var err error
 	if p.token.Type != SEMI {
-		expr, err = p.ParseExpr()
+		expr = p.ParseExpr()
 	}
-	if !p.accept(SEMI) {
-		l, c := p.l.Position()
-		return nil, fmt.Errorf("Syntax error, missing ';' at Ln %d, Col %d", l, c)
-	}
-	return &ReturnStmt{Token: tok, Value: expr}, err
+	p.expect(SEMI)
+	return &ReturnStmt{Token: tok, Value: expr}
 }
 
-func (p *parserImpl) accept(kind TokenType) bool {
+func (p *parserImpl) expect(kind TokenType) {
 	if p.token.Type == kind {
 		p.nextToken()
-		return true
-	} else {
-		p.failed(p.l.pos, fmt.Sprintf("Expect %s, but got %s", kind, p.token.Type))
-		return false
+		return
 	}
+
+	pos := p.token.Offset
+	if p.token.Type == EOF {
+		pos = p.prevToken.Offset + len(p.prevToken.Lit)
+	}
+	line, col := p.l.LineMap(pos)
+
+	p.r.Report(ErrExpectedToken, line, col, string(kind), p.token.Lit)
+	panic(parsingError{})
 }
 
-func (p *parserImpl) failed(pos int, msg string) {}
+type parsingError struct{}

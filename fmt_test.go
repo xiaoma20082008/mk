@@ -1,7 +1,6 @@
-package mk_test
+package mk
 
 import (
-	"mk"
 	"testing"
 )
 
@@ -58,10 +57,11 @@ func TestPrettyFormatter_Format(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			l := mk.NewLexer(tt.line)
-			p := mk.NewParser(l)
+			r := NewReporter("", tt.line)
+			l := NewLexer(tt.line, r)
+			p := NewParser(l, r)
 			program := p.ParseCode()
-			f := mk.NewFormatter()
+			f := NewFormatter()
 			got := f.Format(program)
 			if got != tt.want {
 				t.Errorf("Format() = \n%v\n, want \n%v", got, tt.want)

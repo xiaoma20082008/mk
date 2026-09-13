@@ -1,6 +1,23 @@
 package mk
 
-type Lexer struct {
+import "sort"
+
+type Lexer interface {
+	// NextToken 推进词法流,并返回并消费掉下一个Token
+	NextToken() Token
+	// Token 返回当前已经被消费、Parser 正在处理的那个 Token
+	Token() Token
+	// Lookahead 向前查看第k个Token但不消费它
+	Lookahead(k int) Token
+	// ErrPos 词法错误位置
+	ErrPos() int
+	// LineMap 将任意绝对字节位置转换为行号和列号（从 1 开始计数）
+	LineMap(pos int) (line int, column int)
+}
+
+const EOI = 0
+
+type lexerImpl struct {
 	input string
 
 	pos     int
@@ -10,11 +27,12 @@ type Lexer struct {
 	token Token
 	saved []Token
 
-	ln  int // 行
-	col int // 列
+	lineStarts []int
+	errPos     int
+	r          DiagnosticReporter
 }
 
-func (l *Lexer) NextToken() Token {
+func (l *lexerImpl) NextToken() Token {
 	if len(l.saved) > 0 {
 		l.token = l.saved[0]
 		l.saved = l.saved[1:]
@@ -24,11 +42,11 @@ func (l *Lexer) NextToken() Token {
 	return l.token
 }
 
-func (l *Lexer) Token() Token {
-	return l.Lookhead(0)
+func (l *lexerImpl) Token() Token {
+	return l.Lookahead(0)
 }
 
-func (l *Lexer) Lookhead(lookahead int) Token {
+func (l *lexerImpl) Lookahead(lookahead int) Token {
 	if lookahead == 0 {
 		return l.token
 	} else {
@@ -37,117 +55,200 @@ func (l *Lexer) Lookhead(lookahead int) Token {
 	}
 }
 
-func (l *Lexer) readToken() Token {
-	var tok Token
+func (l *lexerImpl) ErrPos() int {
+	return l.errPos
+}
+
+func (l *lexerImpl) LineMap(pos int) (int, int) {
+	if pos <= 0 {
+		return 1, 1
+	}
+	if pos > len(l.input) {
+		pos = len(l.input)
+	}
+	line := sort.Search(len(l.lineStarts), func(i int) bool {
+		return l.lineStarts[i] > pos
+	})
+	startOfLine := l.lineStarts[line-1]
+	column := pos - startOfLine + 1
+	return line, column
+}
+
+func (l *lexerImpl) readToken() Token {
 	l.skipWhitespace()
+	var kind TokenType
+	startPos := l.pos
+	lit := ""
+	line, column := l.LineMap(startPos)
+	shouldAdvance := true
 	switch l.ch {
 	case '=':
 		if l.peekChar() == '=' {
 			l.readChar()
-			tok = Token{Type: EQ, Lit: "=="}
+			kind = EQ
+			lit = "=="
 		} else {
-			tok = newToken(ASSIGN, l.ch)
+			kind = ASSIGN
+			lit = "="
 		}
 	case '+':
-		tok = newToken(PLUS, l.ch)
+		kind = PLUS
+		lit = "+"
 	case '-':
-		tok = newToken(MINUS, l.ch)
+		kind = MINUS
+		lit = "-"
 	case '*':
-		tok = newToken(STAR, l.ch)
+		kind = STAR
+		lit = "*"
 	case '/':
-		tok = newToken(SLASH, l.ch)
+		kind = SLASH
+		lit = "/"
 	case '!':
 		if l.peekChar() == '=' {
 			l.readChar()
-			tok = Token{Type: NE, Lit: "!="}
+			kind = NE
+			lit = "!="
 		} else {
-			tok = newToken(BANG, l.ch)
+			kind = BANG
+			lit = "!"
 		}
 	case '<':
 		if l.peekChar() == '=' {
 			l.readChar()
-			tok = Token{Type: LE, Lit: "<="}
+			kind = LE
+			lit = "<="
 		} else if l.peekChar() == '<' {
 			l.readChar()
-			tok = Token{Type: LTLT, Lit: "<<"}
+			kind = LTLT
+			lit = "<<"
 		} else {
-			tok = newToken(LT, l.ch)
+			kind = LT
+			lit = "<"
 		}
 	case '>':
 		if l.peekChar() == '=' {
 			l.readChar()
-			tok = Token{Type: GE, Lit: "<="}
+			kind = GE
+			lit = ">="
 		} else if l.peekChar() == '>' {
 			l.readChar()
-			tok = Token{Type: GTGT, Lit: "<<"}
+			kind = GTGT
+			lit = ">>"
 		} else {
-			tok = newToken(GT, l.ch)
+			kind = GT
+			lit = ">"
 		}
 	case '%':
-		tok = newToken(PERCENT, l.ch)
+		kind = PERCENT
+		lit = "%"
 	case '?':
-		tok = newToken(QUESTION, l.ch)
+		kind = QUESTION
+		lit = "?"
 	case '~':
-		tok = newToken(TILDE, l.ch)
+		kind = TILDE
+		lit = "~"
 	case ',':
-		tok = newToken(COMMA, l.ch)
+		kind = COMMA
+		lit = ","
 	case ';':
-		tok = newToken(SEMI, l.ch)
+		kind = SEMI
+		lit = ";"
 	case '{':
-		tok = newToken(LBRACE, l.ch)
+		kind = LBRACE
+		lit = "{"
 	case '}':
-		tok = newToken(RBRACE, l.ch)
+		kind = RBRACE
+		lit = "}"
 	case '(':
-		tok = newToken(LPAREN, l.ch)
+		kind = LPAREN
+		lit = "("
 	case ')':
-		tok = newToken(RPAREN, l.ch)
+		kind = RPAREN
+		lit = ")"
 	case '[':
-		tok = newToken(LBRACKET, l.ch)
+		kind = LBRACKET
+		lit = "["
 	case ']':
-		tok = newToken(RBRACKET, l.ch)
+		kind = RBRACKET
+		lit = "]"
 	case ':':
-		tok = newToken(COLON, l.ch)
+		kind = COLON
+		lit = ":"
 	case 0:
-		tok.Lit = ""
-		tok.Type = EOF
+		kind = EOF
+		lit = ""
 	case '"':
-		tok.Type = STRING
-		tok.Lit = l.readString()
+		s, ok := l.readString()
+		if ok {
+			lit = s
+			kind = STRING
+			shouldAdvance = false
+		} else {
+			lit = ""
+			kind = ERR
+			// 此时 l.ch 已经是 0 (EOI) 了
+			shouldAdvance = false
+		}
 	default:
 		if isLetter(l.ch) {
-			tok.Lit = l.readIdent()
-			tok.Type = lookupIdent(tok.Lit)
-			return tok
+			lit = l.readIdent()
+			kind = lookupIdent(lit)
+			shouldAdvance = false
 		} else if isDigit(l.ch) {
-			tok.Lit = l.readNum()
-			tok.Type = INT
-			return tok
+			kind = INT
+			lit = l.readInt()
+			shouldAdvance = false
 		} else {
-			tok = newToken(ERR, l.ch)
+			l.r.Report(ErrInvalidChar, line, column, string(l.ch))
+			l.errPos = startPos
+			kind = ERR
+			lit = string(l.ch)
 		}
 	}
-	l.readChar()
-	return tok
+	if shouldAdvance {
+		l.readChar()
+	}
+	return NewToken(kind, lit, line, column, startPos)
 }
 
-func (l *Lexer) ensure(lookahead int) {
+func (l *lexerImpl) ensure(lookahead int) {
 	for i := len(l.saved); i < lookahead; i++ {
 		l.saved = append(l.saved, l.readToken())
 	}
 }
 
-func (l *Lexer) readString() string {
+func (l *lexerImpl) readString() (string, bool) {
+	// 1.
 	p := l.pos
 
+	// 2.跳过开头的"
 	l.readChar()
-	for l.ch != '"' {
+
+	for l.ch != '"' && l.ch != 0 {
+		if l.ch == '\\' {
+			l.readChar()
+		}
 		l.readChar()
 	}
 
-	return l.input[p+1 : l.pos]
+	// 3.
+	if l.ch == 0 {
+		line, col := l.LineMap(p)
+		l.r.Report(ErrUnterminatedString, line, col)
+		l.errPos = p
+		return "", false
+	}
+
+	// 4.
+	ret := l.input[p+1 : l.pos]
+
+	// 5. 跳过末尾的"
+	l.readChar()
+
+	return ret, true
 }
 
-func (l *Lexer) readNum() string {
+func (l *lexerImpl) readInt() string {
 	p := l.pos
 	for isDigit(l.ch) {
 		l.readChar()
@@ -155,7 +256,7 @@ func (l *Lexer) readNum() string {
 	return l.input[p:l.pos]
 }
 
-func (l *Lexer) readIdent() string {
+func (l *lexerImpl) readIdent() string {
 	p := l.pos
 	for isLetter(l.ch) || isDigit(l.ch) {
 		l.readChar()
@@ -163,17 +264,17 @@ func (l *Lexer) readIdent() string {
 	return l.input[p:l.pos]
 }
 
-func (l *Lexer) peekChar() byte {
+func (l *lexerImpl) peekChar() byte {
 	if l.readPos >= len(l.input) {
-		return 0
+		return EOI
 	} else {
 		return l.input[l.readPos]
 	}
 }
 
-func (l *Lexer) readChar() {
+func (l *lexerImpl) readChar() {
 	if l.readPos >= len(l.input) {
-		l.ch = 0
+		l.ch = EOI
 	} else {
 		l.ch = l.input[l.readPos]
 	}
@@ -181,34 +282,26 @@ func (l *Lexer) readChar() {
 	l.readPos++
 
 	if l.ch == '\n' {
-		l.ln++
-		l.col = 1
-	} else {
-		l.col++
+		l.lineStarts = append(l.lineStarts, l.pos+1)
 	}
 }
 
-func (l *Lexer) skipWhitespace() {
+func (l *lexerImpl) skipWhitespace() {
 	for l.ch == ' ' || l.ch == '\n' || l.ch == '\t' || l.ch == '\r' {
 		l.readChar()
 	}
 }
 
-func (l *Lexer) Position() (ln int, col int) {
-	ln = l.ln
-	col = l.col
-	return ln, col
-}
-
-func NewLexer(input string) *Lexer {
-	l := &Lexer{
+func NewLexer(input string, r DiagnosticReporter) Lexer {
+	l := &lexerImpl{
 		input: input,
 
 		saved: []Token{},
 		token: DUMMY,
 
-		ln:  1,
-		col: 1,
+		lineStarts: []int{0},
+		errPos:     -1,
+		r:          r,
 	}
 	l.readChar()
 	return l

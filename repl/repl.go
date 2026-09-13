@@ -19,13 +19,15 @@ func Start(in io.Reader, out io.Writer) {
 			continue
 		}
 		line := scanner.Text()
-		l := mk.NewLexer(line)
-		p := mk.NewParser(l)
+		r := mk.NewReporter("", line)
+		l := mk.NewLexer(line, r)
+		p := mk.NewParser(l, r)
 
 		program := p.ParseCode()
-		if len(p.Errors()) > 0 {
-			for _, err := range p.Errors() {
-				io.WriteString(out, err.Error())
+		if len(r.Diagnostics()) > 0 {
+			for _, d := range r.Diagnostics() {
+				io.WriteString(out, d.String())
+				io.WriteString(out, "\n")
 			}
 			continue
 		}
