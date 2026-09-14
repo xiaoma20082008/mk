@@ -333,7 +333,7 @@ func (p *parserImpl) parseIdent() *IdentExpr {
 }
 
 func (p *parserImpl) parseCall(left Expression) Expression {
-	expr := &CallExpr{Fn: left}
+	expr := &CallExpr{Token: p.token, Fn: left}
 	p.expect(LPAREN)
 
 	args := []Expression{}

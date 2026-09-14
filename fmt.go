@@ -101,13 +101,14 @@ func (f *PrettyFormatter) VisitTuple(n *TupleLitExpr, x any) (Node, error) {
 func (f *PrettyFormatter) VisitMap(n *MapLitExpr, x any) (Node, error) {
 	f.sb.WriteString("{")
 	i := 0
+	sz := len(n.Value)
 	for k, v := range n.Value {
 		k.Accept(f, x)
-		f.sb.WriteString(":")
-		if i > 0 {
-			f.sb.WriteString(" ")
-		}
+		f.sb.WriteString(": ")
 		v.Accept(f, x)
+		if i < sz-1 {
+			f.sb.WriteString(", ")
+		}
 		i++
 	}
 	f.sb.WriteString("}")

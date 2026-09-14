@@ -9,6 +9,15 @@ type Evaluator struct {
 }
 
 func (e *Evaluator) Eval(p *Program) Obj {
+	defer func() {
+		if r := recover(); r != nil {
+			if _, ok := r.(*runtimeError); ok {
+				e.ret = O_NULL
+				return
+			}
+			panic(r)
+		}
+	}()
 	p.Accept(e, nil)
 	return e.ret
 }
@@ -27,10 +36,10 @@ func (f *Evaluator) VisitProgram(n *Program, x any) (Node, error) {
 func (f *Evaluator) VisitIdent(n *IdentExpr, x any) (Node, error) {
 	if val := f.env.Get(n.Value); val != nil {
 		f.ret = val
-	} else {
-		f.ret = O_NULL
+		return n, nil
 	}
-	return n, nil
+	f.r.Report(ErrUndefinedIdentifier, n.Token.Line, n.Token.Column, n.Token.Lit)
+	panic(runtimeError{})
 }
 
 func (f *Evaluator) VisitMap(n *MapLitExpr, x any) (Node, error) {
@@ -122,6 +131,10 @@ func (f *Evaluator) VisitBinary(n *BinaryExpr, x any) (Node, error) {
 	n.Rhs.Accept(f, x)
 	rhs := f.ret
 	if lhs.Type() == OBJ_INT && rhs.Type() == OBJ_INT {
+		if (n.Op.Type == SLASH || n.Op.Type == PERCENT) && rhs.(*IntObj).Value == 0 {
+			f.r.Report(ErrDivByZero, n.Op.Line, n.Op.Column, n.Op.Lit)
+			panic(runtimeError{})
+		}
 		f.ret = evalIntOp(n.Op.Lit, lhs, rhs)
 	} else if n.Op.Type == PLUS {
 		f.ret = NewString(lhs.Inspect() + rhs.Inspect())
@@ -135,7 +148,10 @@ func (f *Evaluator) VisitCall(n *CallExpr, x any) (Node, error) {
 	n.Fn.Accept(f, x)
 	fn, ok := f.ret.(*FuncObj)
 	if !ok {
-		panic("not a function")
+		astFmt := NewFormatter()
+		name := astFmt.Format(n.Fn)
+		f.r.Report(ErrNotAFunction, n.Token.Line, n.Token.Column, name)
+		panic(runtimeError{})
 	}
 	args := []Obj{}
 	for _, arg := range n.Args {
@@ -370,3 +386,5 @@ func isTruthy(obj Obj) bool {
 	}
 	return true
 }
+
+type runtimeError struct{}

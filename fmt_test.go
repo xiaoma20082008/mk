@@ -36,8 +36,8 @@ func TestPrettyFormatter_Format(t *testing.T) {
 		},
 		{
 			name: "paren",
-			line: `(10)`,
-			want: `(10)`,
+			line: `(10);`,
+			want: `(10);`,
 		},
 		{
 			name: "let tuple",

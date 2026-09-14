@@ -83,8 +83,9 @@ type BinaryExpr struct {
 }
 
 type CallExpr struct {
-	Fn   Expression
-	Args []Expression
+	Token Token
+	Fn    Expression
+	Args  []Expression
 }
 
 type TernaryExpr struct {

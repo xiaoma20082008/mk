@@ -9,7 +9,7 @@ func TestMake(t *testing.T) {
 		expected []byte
 	}{
 		{
-			OpConstant, []int{65535}, []byte{byte(OpConstant), 255, 254},
+			OpConstant, []int{65535}, []byte{byte(OpConstant), 255, 255},
 		},
 	}
 

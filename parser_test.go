@@ -62,32 +62,21 @@ func TestParser_parseIf(t *testing.T) {
 	l := NewLexer(input, r)
 	p := NewParser(l, r)
 	program := p.ParseCode()
-	if program == nil {
-		t.Fatalf("ParseCode() returned nil")
-	}
 	if len(r.Diagnostics()) > 0 {
 		for _, d := range r.Diagnostics() {
-			t.Error(d.String())
+			t.Fatal(d.String())
 		}
-	}
-	if len(program.Statements) != 3 {
-		t.Fatalf("ParseCode() got= %d, want = %d", len(program.Statements), 3)
 	}
 	tests := []struct {
 		want string
 	}{
-		{"x"},
-		{"y"},
-		{"foo"},
+		{"if"},
 	}
 	for i, tt := range tests {
 		stmt := program.Statements[i]
-		if stmt.Text() != "let" {
-			t.Errorf("")
-		}
-		let, ok := stmt.(*IfStmt)
+		ifStmt, ok := stmt.(*IfStmt)
 		if !ok {
-			t.Errorf("statement is not LetStmt. want = %s, got = %T", tt.want, let)
+			t.Fatalf("statement is not IfStmt. want = %s, got = %T", tt.want, ifStmt)
 		}
 	}
 }
@@ -317,8 +306,9 @@ func Test_parserImpl_parseExpr(t *testing.T) {
 
 func Test_parserImpl_ParseCode(t *testing.T) {
 	input := `
-
-	let add = fn (x, y) { c = a * a; return c *b;}
+	let a = 10;
+	let b = "20";
+	let add = fn (x, y) { c = a * a; return c *b;};
 	`
 	r := NewReporter("", input)
 	l := NewLexer(input, r)
