@@ -12,6 +12,14 @@ type Opcode byte
 
 const (
 	OpConstant Opcode = iota
+	OpAdd
+	OpSub
+	OpMul
+	OpDiv
+	OpMod
+	OpPop
+
+	OpCall
 )
 
 type Definition struct {
@@ -27,6 +35,14 @@ func (i Instructions) String() string {
 
 var definitions = map[Opcode]*Definition{
 	OpConstant: {"OpConstant", []int{2}},
+	OpAdd:      {"OpAdd", []int{}},
+	OpSub:      {"OpSub", []int{}},
+	OpMul:      {"OpMul", []int{}},
+	OpDiv:      {"OpDiv", []int{}},
+	OpMod:      {"OpMod", []int{}},
+	OpPop:      {"OpPop", []int{}},
+
+	OpCall: {"OpCall", []int{1}},
 }
 
 func Lookup(op byte) (*Definition, error) {
@@ -60,4 +76,8 @@ func Make(op Opcode, operands ...int) Instructions {
 		offset += w
 	}
 	return inst
+}
+
+func ReadUint16(inst Instructions) uint16 {
+	return binary.BigEndian.Uint16(inst)
 }

@@ -1,24 +1,52 @@
 package repl
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"mk"
+	"os"
+
+	"golang.org/x/term"
 )
 
 const PROMPT = ">> "
 
 func Start(in io.Reader, out io.Writer) {
-	scanner := bufio.NewScanner(in)
+	// 1. 把标准的输入流（通常是 os.Stdin）切换为终端的 Raw Mode
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		fmt.Fprintf(out, "failed to set terminal to raw mode: %v\n", err)
+		return
+	}
+	// 2. 使用 defer 在 REPL 退出时还原终端状态，否则退出后你的终端会错乱
+	defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+	// 3. 创建一个高级终端抽象层
+	terminal := term.NewTerminal(struct {
+		io.Reader
+		io.Writer
+	}{in, out}, PROMPT)
 	env := mk.NewEnv(nil)
 	for {
-		fmt.Fprintf(out, PROMPT)
-		scanned := scanner.Scan()
-		if !scanned {
+		// 4. ReadLine 会自动帮你处理 光标移动(← →)、行内插入、退格删除
+		line, err := terminal.ReadLine()
+		if err != nil {
+			if err == io.EOF {
+				break // 用户按了 Ctrl+D 优雅退出
+			}
+			io.WriteString(out, "Read error: "+err.Error()+"\n")
+			// fmt.Fprintln(terminal, "Read error: "+err.Error())
 			continue
 		}
-		line := scanner.Text()
+
+		if line == "" {
+			continue
+		}
+		if line == "/exit" {
+			fmt.Fprintln(terminal, "Bye bye !")
+			break
+		}
+
 		r := mk.NewReporter("repl.mk", line)
 		l := mk.NewLexer(line, r)
 		p := mk.NewParser(l, r)
@@ -26,8 +54,7 @@ func Start(in io.Reader, out io.Writer) {
 		program := p.ParseCode()
 		if len(r.Diagnostics()) > 0 {
 			for _, d := range r.Diagnostics() {
-				io.WriteString(out, d.String())
-				io.WriteString(out, "\n")
+				fmt.Fprintln(terminal, d.String())
 			}
 			continue
 		}
@@ -37,11 +64,7 @@ func Start(in io.Reader, out io.Writer) {
 		res := mk.NewEvaluator(env, r).Eval(program)
 
 		if res != nil {
-			io.WriteString(out, res.Inspect())
-			io.WriteString(out, "\n")
-		}
-		if err := scanner.Err(); err != nil {
-			out.Write([]byte(err.Error()))
+			fmt.Fprintln(terminal, res.Inspect())
 		}
 	}
 

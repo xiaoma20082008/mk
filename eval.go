@@ -93,7 +93,7 @@ func (f *Evaluator) VisitBool(n *BoolLitExpr, x any) (Node, error) {
 func (f *Evaluator) VisitUnary(n *UnaryExpr, x any) (Node, error) {
 	n.Right.Accept(f, 0)
 	rhs := f.ret
-	switch n.Token.Type {
+	switch n.Op.Type {
 	case PLUS:
 		if rhs.Type() != OBJ_INT {
 			f.ret = O_NULL

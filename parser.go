@@ -222,7 +222,7 @@ func (p *parserImpl) parseUnary() Expression {
 	tok := p.token
 	p.nextToken()
 	expr := p.parseExpr(precedence(tok.Type))
-	return &UnaryExpr{Token: tok, Right: expr}
+	return &UnaryExpr{Op: tok, Right: expr}
 }
 
 func (p *parserImpl) parseList() Expression {

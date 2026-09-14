@@ -72,7 +72,7 @@ type IndexExpr struct {
 }
 
 type UnaryExpr struct {
-	Token Token
+	Op    Token
 	Right Expression
 }
 
@@ -263,7 +263,7 @@ func (e *UnaryExpr) exprNode() {
 }
 
 func (e *UnaryExpr) Text() string {
-	return e.Token.Lit + e.Right.Text()
+	return e.Op.Lit + e.Right.Text()
 }
 
 func (e *UnaryExpr) Accept(v Visitor, x any) (Node, error) {

@@ -121,7 +121,7 @@ func (f *PrettyFormatter) VisitIdent(n *IdentExpr, x any) (Node, error) {
 }
 
 func (f *PrettyFormatter) VisitUnary(n *UnaryExpr, x any) (Node, error) {
-	f.sb.WriteString(n.Token.Lit)
+	f.sb.WriteString(n.Op.Lit)
 	n.Right.Accept(f, nil)
 	return n, nil
 }

@@ -8,6 +8,7 @@ func TestMake(t *testing.T) {
 		operands []int
 		expected []byte
 	}{
+		// 65534是0XFF 0XFE可以方便的看顺序
 		{
 			OpConstant, []int{65535}, []byte{byte(OpConstant), 255, 255},
 		},
