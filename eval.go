@@ -2,6 +2,7 @@ package mk
 
 type Evaluator struct {
 	env *Env
+	r   DiagnosticReporter
 
 	ret Obj
 	fin bool // 表示是否结束
@@ -311,9 +312,10 @@ func (f *Evaluator) VisitBlock(n *BlockStmt, x any) (Node, error) {
 // Class
 func (f *Evaluator) VisitClass(n *ClassStmt, x any) (Node, error) { return n, nil }
 
-func NewEvaluator(e *Env) *Evaluator {
+func NewEvaluator(e *Env, r DiagnosticReporter) *Evaluator {
 	return &Evaluator{
 		env: e,
+		r:   r,
 	}
 }
 

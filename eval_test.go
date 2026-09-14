@@ -12,7 +12,7 @@ func TestEvaluator_Eval(t *testing.T) {
 	}{
 		{
 			name: "add",
-			line: `-1>2?"a":"b"`,
+			line: `-1>2?"a":"b";`,
 			want: `b`,
 		},
 		{
@@ -37,7 +37,7 @@ func TestEvaluator_Eval(t *testing.T) {
 			p := NewParser(l, r)
 			program := p.ParseCode()
 			env := NewEnv(nil)
-			e := NewEvaluator(env)
+			e := NewEvaluator(env, r)
 			res := e.Eval(program)
 			if res.Inspect() != tt.want {
 				t.Errorf("Format() = \n%v\n, want \n%v", res.Inspect(), tt.want)

@@ -19,7 +19,7 @@ func Start(in io.Reader, out io.Writer) {
 			continue
 		}
 		line := scanner.Text()
-		r := mk.NewReporter("", line)
+		r := mk.NewReporter("repl.mk", line)
 		l := mk.NewLexer(line, r)
 		p := mk.NewParser(l, r)
 
@@ -34,7 +34,7 @@ func Start(in io.Reader, out io.Writer) {
 		// fmt := mk.NewFormatter()
 		// io.WriteString(out, fmt.Format(program))
 
-		res := mk.NewEvaluator(env).Eval(program)
+		res := mk.NewEvaluator(env, r).Eval(program)
 
 		if res != nil {
 			io.WriteString(out, res.Inspect())
