@@ -39,7 +39,7 @@ func (f *Evaluator) VisitIdent(n *IdentExpr, x any) (Node, error) {
 		return n, nil
 	}
 	f.r.Report(ErrUndefinedIdentifier, n.Token.Line, n.Token.Column, n.Token.Lit)
-	panic(runtimeError{})
+	panic(&runtimeError{"undefined vairable: " + n.Token.Lit})
 }
 
 func (f *Evaluator) VisitMap(n *MapLitExpr, x any) (Node, error) {
@@ -133,7 +133,7 @@ func (f *Evaluator) VisitBinary(n *BinaryExpr, x any) (Node, error) {
 	if lhs.Type() == OBJ_INT && rhs.Type() == OBJ_INT {
 		if (n.Op.Type == SLASH || n.Op.Type == PERCENT) && rhs.(*IntObj).Value == 0 {
 			f.r.Report(ErrDivByZero, n.Op.Line, n.Op.Column, n.Op.Lit)
-			panic(runtimeError{})
+			panic(&runtimeError{"divided by zero"})
 		}
 		f.ret = evalIntOp(n.Op.Lit, lhs, rhs)
 	} else if n.Op.Type == PLUS {
@@ -151,7 +151,7 @@ func (f *Evaluator) VisitCall(n *CallExpr, x any) (Node, error) {
 		astFmt := NewFormatter()
 		name := astFmt.Format(n.Fn)
 		f.r.Report(ErrNotAFunction, n.Token.Line, n.Token.Column, name)
-		panic(runtimeError{})
+		panic(&runtimeError{"expect a function, but got: " + n.Token.Lit})
 	}
 	args := []Obj{}
 	for _, arg := range n.Args {
@@ -387,4 +387,6 @@ func isTruthy(obj Obj) bool {
 	return true
 }
 
-type runtimeError struct{}
+type runtimeError struct {
+	msg string
+}

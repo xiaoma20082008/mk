@@ -34,8 +34,8 @@ func Start(in io.Reader, out io.Writer) {
 			if err == io.EOF {
 				break // 用户按了 Ctrl+D 优雅退出
 			}
-			io.WriteString(out, "Read error: "+err.Error()+"\n")
-			// fmt.Fprintln(terminal, "Read error: "+err.Error())
+			// io.WriteString(out, "Read error: "+err.Error()+"\n")
+			fmt.Fprintln(terminal, "Read error: "+err.Error())
 			continue
 		}
 
@@ -47,25 +47,56 @@ func Start(in io.Reader, out io.Writer) {
 			break
 		}
 
-		r := mk.NewReporter("repl.mk", line)
-		l := mk.NewLexer(line, r)
-		p := mk.NewParser(l, r)
-
-		program := p.ParseCode()
-		if len(r.Diagnostics()) > 0 {
-			for _, d := range r.Diagnostics() {
-				fmt.Fprintln(terminal, d.String())
-			}
-			continue
-		}
-		// fmt := mk.NewFormatter()
-		// io.WriteString(out, fmt.Format(program))
-
-		res := mk.NewEvaluator(env, r).Eval(program)
-
-		if res != nil {
-			fmt.Fprintln(terminal, res.Inspect())
-		}
+		// 5. 开始执行
+		astExecute(env, "repl", line, terminal)
 	}
+}
 
+func astExecute(env *mk.Env, file, code string, out io.Writer) {
+	// 1. 词法与语法分析
+	r := mk.NewReporter(file, code)
+	l := mk.NewLexer(code, r)
+	p := mk.NewParser(l, r)
+	program := p.ParseCode()
+	if len(r.Diagnostics()) > 0 {
+		printDiagnostics(r, out)
+		return
+	}
+	// 2. 执行阶段
+	evaluator := mk.NewEvaluator(env, r)
+	res := evaluator.Eval(program)
+	if len(r.Diagnostics()) > 0 {
+		printDiagnostics(r, out)
+		return
+	}
+	// 3. 输出结果
+	if res != nil {
+		fmt.Fprintln(out, res.Inspect())
+	}
+}
+
+func vmExecute(env *mk.Env, file, code string, out io.Writer) {
+	// 1. 词法与语法分析
+	r := mk.NewReporter(file, code)
+	l := mk.NewLexer(code, r)
+	p := mk.NewParser(l, r)
+	program := p.ParseCode()
+	if len(r.Diagnostics()) > 0 {
+		printDiagnostics(r, out)
+		return
+	}
+	// 2. 语义分析 TODO
+
+	// 3. 编译阶段
+	c := mk.NewCompiler()
+	c.Compile(program)
+
+	// 4. 虚拟机执行阶段
+	vm := mk.NewVM(c.Bytecode())
+	vm.Run()
+}
+func printDiagnostics(r mk.DiagnosticReporter, out io.Writer) {
+	for _, d := range r.Diagnostics() {
+		fmt.Fprintln(out, d.String())
+	}
 }

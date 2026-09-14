@@ -131,7 +131,7 @@ func (p *parserImpl) ParseCode() *Program {
 func (p *parserImpl) safeParseStmt() (stmt Statement) {
 	defer func() {
 		if r := recover(); r != nil {
-			if _, ok := r.(parsingError); ok {
+			if _, ok := r.(*parsingError); ok {
 				p.crashRecovery()
 				stmt = nil
 				return
@@ -164,7 +164,7 @@ func (p *parserImpl) parseExpr(prec int) Expression {
 	if !ok {
 		line, col := p.l.LineMap(p.token.Offset)
 		p.r.Report(ErrNoPrefixParseFunc, line, col, p.token.Lit)
-		panic(parsingError{})
+		panic(&parsingError{"no prefix parse func found for token: " + p.token.Lit})
 	}
 	expr = prefixFn()
 	for prec < precedence(p.token.Type) {
@@ -213,7 +213,7 @@ func (p *parserImpl) parsePrefix0() Expression {
 	default:
 		line, col := p.l.LineMap(p.token.Offset)
 		p.r.Report(ErrUnknownPrefixKind, line, col, p.token.Lit)
-		panic(parsingError{})
+		panic(&parsingError{"unknown token: " + p.token.Lit})
 	}
 	return expr
 }
@@ -325,7 +325,7 @@ func (p *parserImpl) parseIdent() *IdentExpr {
 	if p.token.Type != IDENT {
 		line, col := p.l.LineMap(p.token.Offset)
 		p.r.Report(ErrExpectedToken, line, col, p.token.Lit)
-		panic(parsingError{})
+		panic(&parsingError{"expect an ident, but got: " + p.token.Lit})
 	}
 	e := &IdentExpr{Token: p.token, Value: p.token.Lit}
 	p.nextToken()
@@ -472,7 +472,9 @@ func (p *parserImpl) expect(kind TokenType) {
 	line, col := p.l.LineMap(pos)
 
 	p.r.Report(ErrExpectedToken, line, col, string(kind), p.token.Lit)
-	panic(parsingError{})
+	panic(&parsingError{"unknown token: " + p.token.Lit})
 }
 
-type parsingError struct{}
+type parsingError struct {
+	msg string
+}

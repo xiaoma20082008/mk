@@ -204,6 +204,12 @@ func Test_parserImpl_parseLet(t *testing.T) {
 			want: &LetStmt{Name: &IdentExpr{Value: "a"}, Value: &BoolLitExpr{Value: true}},
 			err:  nil,
 		},
+		{
+			name: "bool",
+			line: `let a = 10 + 20;`,
+			want: &LetStmt{Name: &IdentExpr{Value: "a"}, Value: &BinaryExpr{}},
+			err:  nil,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

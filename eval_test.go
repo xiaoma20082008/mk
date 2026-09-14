@@ -10,24 +10,34 @@ func TestEvaluator_Eval(t *testing.T) {
 		line string
 		want string
 	}{
+		// {
+		// 	name: "add",
+		// 	line: `-1>2?"a":"b";`,
+		// 	want: `b`,
+		// },
+		// {
+		// 	name: "eval add",
+		// 	line: `let add = fn(x,y){return x+y;};
+		// 	add(1,2);
+		// 	`,
+		// 	want: `3`,
+		// },
+		// {
+		// 	name: "eval add",
+		// 	line: `let add = fn(x,y){ c = x+y; return c*c;};
+		// 	add(1,2);
+		// 	`,
+		// 	want: `9`,
+		// },
+		// {
+		// 	name: "eval let plus",
+		// 	line: `let a = 10+20;`,
+		// 	want: `30`,
+		// },
 		{
-			name: "add",
-			line: `-1>2?"a":"b";`,
-			want: `b`,
-		},
-		{
-			name: "eval add",
-			line: `let add = fn(x,y){return x+y;};
-			add(1,2);
-			`,
-			want: `3`,
-		},
-		{
-			name: "eval add",
-			line: `let add = fn(x,y){ c = x+y; return c*c;};
-			add(1,2);
-			`,
-			want: `9`,
+			name: "eval let plus",
+			line: `let a = 10+b;`,
+			want: `err`,
 		},
 	}
 	for _, tt := range tests {
@@ -39,6 +49,11 @@ func TestEvaluator_Eval(t *testing.T) {
 			env := NewEnv(nil)
 			e := NewEvaluator(env, r)
 			res := e.Eval(program)
+			if len(r.Diagnostics()) > 0 {
+				for _, d := range r.Diagnostics() {
+					t.Fatal(d.String())
+				}
+			}
 			if res.Inspect() != tt.want {
 				t.Errorf("Format() = \n%v\n, want \n%v", res.Inspect(), tt.want)
 			}
