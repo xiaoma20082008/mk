@@ -3,7 +3,10 @@ package repl
 import (
 	"fmt"
 	"io"
-	"mk"
+	"mk/internal/diagnostics"
+	"mk/internal/lexer"
+	"mk/internal/parser"
+	"mk/internal/runtime"
 	"os"
 
 	"golang.org/x/term"
@@ -26,7 +29,7 @@ func Start(in io.Reader, out io.Writer) {
 		io.Reader
 		io.Writer
 	}{in, out}, PROMPT)
-	env := mk.NewEnv(nil)
+	env := runtime.NewEnv(nil)
 	for {
 		// 4. ReadLine 会自动帮你处理 光标移动(← →)、行内插入、退格删除
 		line, err := terminal.ReadLine()
@@ -52,18 +55,18 @@ func Start(in io.Reader, out io.Writer) {
 	}
 }
 
-func astExecute(env *mk.Env, file, code string, out io.Writer) {
+func astExecute(env *runtime.Env, file, code string, out io.Writer) {
 	// 1. 词法与语法分析
-	r := mk.NewReporter(file, code)
-	l := mk.NewLexer(code, r)
-	p := mk.NewParser(l, r)
+	r := diagnostics.NewReporter(file, code)
+	l := lexer.NewLexer(code, r)
+	p := parser.NewParser(l, r)
 	program := p.ParseCode()
 	if len(r.Diagnostics()) > 0 {
 		printDiagnostics(r, out)
 		return
 	}
 	// 2. 执行阶段
-	evaluator := mk.NewEvaluator(env, r)
+	evaluator := runtime.NewEvaluator(env, r)
 	res := evaluator.Eval(program)
 	if len(r.Diagnostics()) > 0 {
 		printDiagnostics(r, out)
@@ -75,11 +78,11 @@ func astExecute(env *mk.Env, file, code string, out io.Writer) {
 	}
 }
 
-func vmExecute(env *mk.Env, file, code string, out io.Writer) {
+func vmExecute(env *runtime.Env, file, code string, out io.Writer) {
 	// 1. 词法与语法分析
-	r := mk.NewReporter(file, code)
-	l := mk.NewLexer(code, r)
-	p := mk.NewParser(l, r)
+	r := diagnostics.NewReporter(file, code)
+	l := lexer.NewLexer(code, r)
+	p := parser.NewParser(l, r)
 	program := p.ParseCode()
 	if len(r.Diagnostics()) > 0 {
 		printDiagnostics(r, out)
@@ -88,14 +91,14 @@ func vmExecute(env *mk.Env, file, code string, out io.Writer) {
 	// 2. 语义分析 TODO
 
 	// 3. 编译阶段
-	c := mk.NewCompiler()
+	c := runtime.NewCompiler()
 	c.Compile(program)
 
 	// 4. 虚拟机执行阶段
-	vm := mk.NewVM(c.Bytecode())
+	vm := runtime.NewVM(c.Bytecode())
 	vm.Run()
 }
-func printDiagnostics(r mk.DiagnosticReporter, out io.Writer) {
+func printDiagnostics(r diagnostics.DiagnosticReporter, out io.Writer) {
 	for _, d := range r.Diagnostics() {
 		fmt.Fprintln(out, d.String())
 	}

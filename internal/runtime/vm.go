@@ -1,42 +1,46 @@
-package mk
+package runtime
 
-import "fmt"
+import (
+	"fmt"
+	"mk/internal/oop"
+	"mk/internal/opcode"
+)
 
 const StackSize = 2048
 
 type VM struct {
-	constants    []Obj
-	instructions Instructions
+	constants    []oop.Obj
+	instructions opcode.Instructions
 
-	stack []Obj
+	stack []oop.Obj
 	sp    int
 }
 
 func (vm *VM) Run() error {
 	for ip := 0; ip < len(vm.instructions); ip++ {
-		op := Opcode(vm.instructions[ip])
+		op := opcode.Opcode(vm.instructions[ip])
 		switch op {
-		case OpConstant:
-			index := ReadUint16(vm.instructions[ip+1:])
+		case opcode.OpConstant:
+			index := opcode.ReadUint16(vm.instructions[ip+1:])
 			ip += 2
 			err := vm.push(vm.constants[index])
 			if err != nil {
 				return err
 			}
-		case OpAdd:
+		case opcode.OpAdd:
 			rhs := vm.pop()
 			lhs := vm.pop()
-			rv := rhs.(*IntObj).Value
-			lv := lhs.(*IntObj).Value
-			vm.push(NewInt(lv + rv))
-		case OpPop:
+			rv := rhs.(*oop.IntObj).Value
+			lv := lhs.(*oop.IntObj).Value
+			vm.push(oop.NewInt(lv + rv))
+		case opcode.OpPop:
 			vm.pop()
 		}
 	}
 	return nil
 }
 
-func (vm *VM) push(o Obj) error {
+func (vm *VM) push(o oop.Obj) error {
 	if vm.sp >= StackSize {
 		return fmt.Errorf("stack overflow")
 	}
@@ -45,7 +49,7 @@ func (vm *VM) push(o Obj) error {
 	return nil
 }
 
-func (vm *VM) pop() Obj {
+func (vm *VM) pop() oop.Obj {
 	v := vm.stack[vm.sp-1]
 	// 复用这个位置
 	// vm.stack = vm.stack[:vm.sp]
@@ -53,7 +57,7 @@ func (vm *VM) pop() Obj {
 	return v
 }
 
-func (vm *VM) top() Obj {
+func (vm *VM) top() oop.Obj {
 	if vm.sp == 0 {
 		return nil
 	}
@@ -62,10 +66,10 @@ func (vm *VM) top() Obj {
 
 func NewVM(bytecode *Bytecode) *VM {
 	return &VM{
-		instructions: bytecode.instructions,
-		constants:    bytecode.constants,
+		// instructions: bytecode.instructions,
+		// constants:    bytecode.constants,
 
-		stack: make([]Obj, StackSize),
+		stack: make([]oop.Obj, StackSize),
 		sp:    0,
 	}
 }

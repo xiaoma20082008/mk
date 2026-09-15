@@ -1,6 +1,9 @@
-package mk
+package pretty
 
 import (
+	"mk/internal/diagnostics"
+	"mk/internal/lexer"
+	"mk/internal/parser"
 	"testing"
 )
 
@@ -57,9 +60,9 @@ func TestPrettyFormatter_Format(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewReporter("", tt.line)
-			l := NewLexer(tt.line, r)
-			p := NewParser(l, r)
+			r := diagnostics.NewReporter("", tt.line)
+			l := lexer.NewLexer(tt.line, r)
+			p := parser.NewParser(l, r)
 			program := p.ParseCode()
 			f := NewFormatter()
 			got := f.Format(program)

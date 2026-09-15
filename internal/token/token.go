@@ -1,4 +1,4 @@
-package mk
+package token
 
 type TokenType string
 type Token struct {
@@ -121,11 +121,21 @@ var precedences = map[TokenType]int{
 	DOT:      43, // .
 }
 
-func precedence(k TokenType) int {
+func GetPrecedence(k TokenType) int {
 	if p, ok := precedences[k]; ok {
 		return p
 	}
 	return 0
+}
+
+func LookupOpKind(ident string) {
+}
+
+func LookupIdentKind(ident string) TokenType {
+	if typ, ok := keywords[ident]; ok {
+		return typ
+	}
+	return IDENT
 }
 
 func NewToken(typ TokenType, lit string, line, col, pos int) Token {

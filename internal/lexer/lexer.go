@@ -1,14 +1,18 @@
-package mk
+package lexer
 
-import "sort"
+import (
+	"mk/internal/diagnostics"
+	"mk/internal/token"
+	"sort"
+)
 
 type Lexer interface {
 	// NextToken 推进词法流,并返回并消费掉下一个Token
-	NextToken() Token
+	NextToken() token.Token
 	// Token 返回当前已经被消费、Parser 正在处理的那个 Token
-	Token() Token
+	Token() token.Token
 	// Lookahead 向前查看第k个Token但不消费它
-	Lookahead(k int) Token
+	Lookahead(k int) token.Token
 	// ErrPos 词法错误位置
 	ErrPos() int
 	// LineMap 将任意绝对字节位置转换为行号和列号（从 1 开始计数）
@@ -24,15 +28,15 @@ type lexerImpl struct {
 	readPos int
 	ch      byte
 
-	token Token
-	saved []Token
+	token token.Token
+	saved []token.Token
 
 	lineStarts []int
 	errPos     int
-	r          DiagnosticReporter
+	r          diagnostics.DiagnosticReporter
 }
 
-func (l *lexerImpl) NextToken() Token {
+func (l *lexerImpl) NextToken() token.Token {
 	if len(l.saved) > 0 {
 		l.token = l.saved[0]
 		l.saved = l.saved[1:]
@@ -42,11 +46,11 @@ func (l *lexerImpl) NextToken() Token {
 	return l.token
 }
 
-func (l *lexerImpl) Token() Token {
+func (l *lexerImpl) Token() token.Token {
 	return l.Lookahead(0)
 }
 
-func (l *lexerImpl) Lookahead(lookahead int) Token {
+func (l *lexerImpl) Lookahead(lookahead int) token.Token {
 	if lookahead == 0 {
 		return l.token
 	} else {
@@ -74,9 +78,9 @@ func (l *lexerImpl) LineMap(pos int) (int, int) {
 	return line, column
 }
 
-func (l *lexerImpl) readToken() Token {
+func (l *lexerImpl) readToken() token.Token {
 	l.skipWhitespace()
-	var kind TokenType
+	var kind token.TokenType
 	startPos := l.pos
 	lit := ""
 	line, column := l.LineMap(startPos)
@@ -85,130 +89,130 @@ func (l *lexerImpl) readToken() Token {
 	case '=':
 		if l.peekChar() == '=' {
 			l.readChar()
-			kind = EQ
+			kind = token.EQ
 			lit = "=="
 		} else {
-			kind = ASSIGN
+			kind = token.ASSIGN
 			lit = "="
 		}
 	case '+':
-		kind = PLUS
+		kind = token.PLUS
 		lit = "+"
 	case '-':
-		kind = MINUS
+		kind = token.MINUS
 		lit = "-"
 	case '*':
-		kind = STAR
+		kind = token.STAR
 		lit = "*"
 	case '/':
-		kind = SLASH
+		kind = token.SLASH
 		lit = "/"
 	case '!':
 		if l.peekChar() == '=' {
 			l.readChar()
-			kind = NE
+			kind = token.NE
 			lit = "!="
 		} else {
-			kind = BANG
+			kind = token.BANG
 			lit = "!"
 		}
 	case '<':
 		if l.peekChar() == '=' {
 			l.readChar()
-			kind = LE
+			kind = token.LE
 			lit = "<="
 		} else if l.peekChar() == '<' {
 			l.readChar()
-			kind = LTLT
+			kind = token.LTLT
 			lit = "<<"
 		} else {
-			kind = LT
+			kind = token.LT
 			lit = "<"
 		}
 	case '>':
 		if l.peekChar() == '=' {
 			l.readChar()
-			kind = GE
+			kind = token.GE
 			lit = ">="
 		} else if l.peekChar() == '>' {
 			l.readChar()
-			kind = GTGT
+			kind = token.GTGT
 			lit = ">>"
 		} else {
-			kind = GT
+			kind = token.GT
 			lit = ">"
 		}
 	case '%':
-		kind = PERCENT
+		kind = token.PERCENT
 		lit = "%"
 	case '?':
-		kind = QUESTION
+		kind = token.QUESTION
 		lit = "?"
 	case '~':
-		kind = TILDE
+		kind = token.TILDE
 		lit = "~"
 	case ',':
-		kind = COMMA
+		kind = token.COMMA
 		lit = ","
 	case ';':
-		kind = SEMI
+		kind = token.SEMI
 		lit = ";"
 	case '{':
-		kind = LBRACE
+		kind = token.LBRACE
 		lit = "{"
 	case '}':
-		kind = RBRACE
+		kind = token.RBRACE
 		lit = "}"
 	case '(':
-		kind = LPAREN
+		kind = token.LPAREN
 		lit = "("
 	case ')':
-		kind = RPAREN
+		kind = token.RPAREN
 		lit = ")"
 	case '[':
-		kind = LBRACKET
+		kind = token.LBRACKET
 		lit = "["
 	case ']':
-		kind = RBRACKET
+		kind = token.RBRACKET
 		lit = "]"
 	case ':':
-		kind = COLON
+		kind = token.COLON
 		lit = ":"
 	case 0:
-		kind = EOF
+		kind = token.EOF
 		lit = ""
 	case '"':
 		s, ok := l.readString()
 		if ok {
 			lit = s
-			kind = STRING
+			kind = token.STRING
 			shouldAdvance = false
 		} else {
 			lit = ""
-			kind = ERR
+			kind = token.ERR
 			// 此时 l.ch 已经是 0 (EOI) 了
 			shouldAdvance = false
 		}
 	default:
 		if isLetter(l.ch) {
 			lit = l.readIdent()
-			kind = lookupIdent(lit)
+			kind = token.LookupIdentKind(lit)
 			shouldAdvance = false
 		} else if isDigit(l.ch) {
-			kind = INT
+			kind = token.INT
 			lit = l.readInt()
 			shouldAdvance = false
 		} else {
-			l.r.Report(ErrInvalidChar, line, column, string(l.ch))
+			l.r.Report(diagnostics.ErrInvalidChar, line, column, string(l.ch))
 			l.errPos = startPos
-			kind = ERR
+			kind = token.ERR
 			lit = string(l.ch)
 		}
 	}
 	if shouldAdvance {
 		l.readChar()
 	}
-	return NewToken(kind, lit, line, column, startPos)
+	return token.NewToken(kind, lit, line, column, startPos)
 }
 
 func (l *lexerImpl) ensure(lookahead int) {
@@ -234,7 +238,7 @@ func (l *lexerImpl) readString() (string, bool) {
 	// 3.
 	if l.ch == 0 {
 		line, col := l.LineMap(p)
-		l.r.Report(ErrUnterminatedString, line, col)
+		l.r.Report(diagnostics.ErrUnterminatedString, line, col)
 		l.errPos = p
 		return "", false
 	}
@@ -292,12 +296,12 @@ func (l *lexerImpl) skipWhitespace() {
 	}
 }
 
-func NewLexer(input string, r DiagnosticReporter) Lexer {
+func NewLexer(input string, r diagnostics.DiagnosticReporter) Lexer {
 	l := &lexerImpl{
 		input: input,
 
-		saved: []Token{},
-		token: DUMMY,
+		saved: []token.Token{},
+		token: token.DUMMY,
 
 		lineStarts: []int{0},
 		errPos:     -1,
@@ -313,11 +317,4 @@ func isDigit(ch byte) bool {
 
 func isLetter(ch byte) bool {
 	return ch == '_' || ('a' <= ch && ch <= 'z') || ('A' <= ch && ch <= 'Z')
-}
-
-func lookupIdent(ident string) TokenType {
-	if typ, ok := keywords[ident]; ok {
-		return typ
-	}
-	return IDENT
 }

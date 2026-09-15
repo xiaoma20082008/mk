@@ -1,7 +1,11 @@
-package mk
+package parser
 
 import (
 	"fmt"
+	"mk/internal/ast"
+	"mk/internal/diagnostics"
+	"mk/internal/lexer"
+	"mk/internal/token"
 	"reflect"
 	"testing"
 )
@@ -13,8 +17,8 @@ func TestParser_parseLet(t *testing.T) {
 	let foo = "bar";
 	let a = fn (x, y) { y = y * y;x = x + y;return x+y;};
 	`
-	r := NewReporter("", input)
-	l := NewLexer(input, r)
+	r := diagnostics.NewReporter("", input)
+	l := lexer.NewLexer(input, r)
 	p := NewParser(l, r)
 	program := p.ParseCode()
 	if program == nil {
@@ -30,11 +34,11 @@ func TestParser_parseLet(t *testing.T) {
 	}
 	tests := []struct {
 		name string
-		want *LetStmt
+		want *ast.LetStmt
 	}{
 		{
 			name: "",
-			want: &LetStmt{},
+			want: &ast.LetStmt{},
 		},
 	}
 	for i, _ := range tests {
@@ -42,7 +46,7 @@ func TestParser_parseLet(t *testing.T) {
 		if stmt.Text() != "let" {
 			t.Errorf("")
 		}
-		let, ok := stmt.(*LetStmt)
+		let, ok := stmt.(*ast.LetStmt)
 		if !ok {
 			t.Errorf("statement is not LetStmt. got = %T", let)
 		}
@@ -58,8 +62,8 @@ func TestParser_parseIf(t *testing.T) {
       a = 20;
 	}
 	`
-	r := NewReporter("", input)
-	l := NewLexer(input, r)
+	r := diagnostics.NewReporter("", input)
+	l := lexer.NewLexer(input, r)
 	p := NewParser(l, r)
 	program := p.ParseCode()
 	if len(r.Diagnostics()) > 0 {
@@ -74,7 +78,7 @@ func TestParser_parseIf(t *testing.T) {
 	}
 	for i, tt := range tests {
 		stmt := program.Statements[i]
-		ifStmt, ok := stmt.(*IfStmt)
+		ifStmt, ok := stmt.(*ast.IfStmt)
 		if !ok {
 			t.Fatalf("statement is not IfStmt. want = %s, got = %T", tt.want, ifStmt)
 		}
@@ -85,7 +89,7 @@ func Test_parserImpl_parseWhile(t *testing.T) {
 	tests := []struct {
 		name string
 		line string
-		want *WhileStmt
+		want *ast.WhileStmt
 		err  error
 	}{
 		// {
@@ -103,14 +107,14 @@ func Test_parserImpl_parseWhile(t *testing.T) {
 		{
 			name: "cond != nil",
 			line: `while(a<20){ a= a+1; add(a,10);}`,
-			want: &WhileStmt{Cond: &BinaryExpr{Lhs: &IdentExpr{Value: "a"}, Op: Token{Lit: "!=", Type: NE}, Rhs: &IntLitExpr{Value: 10}}, Body: &BlockStmt{}},
+			want: &ast.WhileStmt{Cond: &ast.BinaryExpr{Lhs: &ast.IdentExpr{Value: "a"}, Op: token.Token{Lit: "!=", Type: token.NE}, Rhs: &ast.IntLitExpr{Value: 10}}, Body: &ast.BlockStmt{}},
 			err:  nil,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewReporter("", tt.line)
-			l := NewLexer(tt.line, r)
+			r := diagnostics.NewReporter("", tt.line)
+			l := lexer.NewLexer(tt.line, r)
 			p := NewParser(l, r)
 			got := p.parseWhile()
 			if len(r.Diagnostics()) > 0 {
@@ -129,38 +133,38 @@ func Test_parserImpl_parseReturn(t *testing.T) {
 	tests := []struct {
 		name string
 		line string
-		want *ReturnStmt
+		want *ast.ReturnStmt
 		err  error
 	}{
 		{
 			name: "int",
 			line: `return 10;`,
-			want: &ReturnStmt{Value: &IntLitExpr{Value: 10}},
+			want: &ast.ReturnStmt{Value: &ast.IntLitExpr{Value: 10}},
 			err:  nil,
 		},
 		{
 			name: "string",
 			line: `return "tom";`,
-			want: &ReturnStmt{Value: &StringLitExpr{Value: "tom"}},
+			want: &ast.ReturnStmt{Value: &ast.StringLitExpr{Value: "tom"}},
 			err:  nil,
 		},
 		{
 			name: "void",
 			line: `return;`,
-			want: &ReturnStmt{Value: nil},
+			want: &ast.ReturnStmt{Value: nil},
 			err:  nil,
 		},
 		{
 			name: "function",
 			line: `return fn(x,y) {};`,
-			want: &ReturnStmt{Value: &FnExpr{Args: []*IdentExpr{}, Body: &BlockStmt{}}},
+			want: &ast.ReturnStmt{Value: &ast.FnExpr{Args: []*ast.IdentExpr{}, Body: &ast.BlockStmt{}}},
 			err:  nil,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewReporter("", tt.line)
-			l := NewLexer(tt.line, r)
+			r := diagnostics.NewReporter("", tt.line)
+			l := lexer.NewLexer(tt.line, r)
 			p := NewParser(l, r)
 			got := p.parseReturn()
 			if len(r.Diagnostics()) > 0 {
@@ -183,38 +187,38 @@ func Test_parserImpl_parseLet(t *testing.T) {
 	tests := []struct {
 		name string
 		line string
-		want *LetStmt
+		want *ast.LetStmt
 		err  error
 	}{
 		{
 			name: "int",
 			line: `let a = 10;`,
-			want: &LetStmt{Name: &IdentExpr{Value: "a"}, Value: &IntLitExpr{Value: 10}},
+			want: &ast.LetStmt{Name: &ast.IdentExpr{Value: "a"}, Value: &ast.IntLitExpr{Value: 10}},
 			err:  nil,
 		},
 		{
 			name: "string",
 			line: `let a = "tom";`,
-			want: &LetStmt{Name: &IdentExpr{Value: "a"}, Value: &StringLitExpr{Value: "tom"}},
+			want: &ast.LetStmt{Name: &ast.IdentExpr{Value: "a"}, Value: &ast.StringLitExpr{Value: "tom"}},
 			err:  nil,
 		},
 		{
 			name: "bool",
 			line: `let a = true;`,
-			want: &LetStmt{Name: &IdentExpr{Value: "a"}, Value: &BoolLitExpr{Value: true}},
+			want: &ast.LetStmt{Name: &ast.IdentExpr{Value: "a"}, Value: &ast.BoolLitExpr{Value: true}},
 			err:  nil,
 		},
 		{
 			name: "bool",
 			line: `let a = 10 + 20;`,
-			want: &LetStmt{Name: &IdentExpr{Value: "a"}, Value: &BinaryExpr{}},
+			want: &ast.LetStmt{Name: &ast.IdentExpr{Value: "a"}, Value: &ast.BinaryExpr{}},
 			err:  nil,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewReporter("t.mk", tt.line)
-			l := NewLexer(tt.line, r)
+			r := diagnostics.NewReporter("t.mk", tt.line)
+			l := lexer.NewLexer(tt.line, r)
 			p := NewParser(l, r)
 			got := p.parseLet()
 			if len(r.Diagnostics()) > 0 {
@@ -234,68 +238,68 @@ func Test_parserImpl_parseExpr(t *testing.T) {
 	tests := []struct {
 		name string
 		line string
-		want Expression
+		want ast.Expression
 	}{
 		{
 			name: "int",
 			line: `10`,
-			want: &IntLitExpr{Value: 10},
+			want: &ast.IntLitExpr{Value: 10},
 		},
 		{
 			name: "string",
 			line: `"tom"`,
-			want: &StringLitExpr{Value: "tom"},
+			want: &ast.StringLitExpr{Value: "tom"},
 		},
 		{
 			name: "bool",
 			line: `true`,
-			want: &BoolLitExpr{Value: true},
+			want: &ast.BoolLitExpr{Value: true},
 		},
 		{
 			name: "map",
 			line: `{k1:v1}`,
-			want: &MapLitExpr{Value: map[Expression]Expression{&IdentExpr{Value: "k1"}: &IdentExpr{Value: "v1"}}},
+			want: &ast.MapLitExpr{Value: map[ast.Expression]ast.Expression{&ast.IdentExpr{Value: "k1"}: &ast.IdentExpr{Value: "v1"}}},
 		},
 		{
 			name: "map1",
 			line: `{k1:v1,}`,
-			want: &MapLitExpr{Value: map[Expression]Expression{&IdentExpr{Value: "k1"}: &IdentExpr{Value: "v1"}}},
+			want: &ast.MapLitExpr{Value: map[ast.Expression]ast.Expression{&ast.IdentExpr{Value: "k1"}: &ast.IdentExpr{Value: "v1"}}},
 		},
 		{
 			name: "map2",
 			line: `{k1:v1,k2:v2}`,
-			want: &MapLitExpr{Value: map[Expression]Expression{&IdentExpr{Value: "k1"}: &IdentExpr{Value: "v1"}, &IdentExpr{Value: "k2"}: &IdentExpr{Value: "v2"}}},
+			want: &ast.MapLitExpr{Value: map[ast.Expression]ast.Expression{&ast.IdentExpr{Value: "k1"}: &ast.IdentExpr{Value: "v1"}, &ast.IdentExpr{Value: "k2"}: &ast.IdentExpr{Value: "v2"}}},
 		},
 		{
 			name: "map2",
 			line: `{k1:v1,k2:v2,}`,
-			want: &MapLitExpr{Value: map[Expression]Expression{&IdentExpr{Value: "k1"}: &IdentExpr{Value: "v1"}, &IdentExpr{Value: "k2"}: &IdentExpr{Value: "v2"}}},
+			want: &ast.MapLitExpr{Value: map[ast.Expression]ast.Expression{&ast.IdentExpr{Value: "k1"}: &ast.IdentExpr{Value: "v1"}, &ast.IdentExpr{Value: "k2"}: &ast.IdentExpr{Value: "v2"}}},
 		},
 		{
 			name: "list",
 			line: `[v1,v2]`,
-			want: &ListLitExpr{Value: []Expression{&IdentExpr{Value: "v1"}, &IdentExpr{Value: "v2"}}},
+			want: &ast.ListLitExpr{Value: []ast.Expression{&ast.IdentExpr{Value: "v1"}, &ast.IdentExpr{Value: "v2"}}},
 		},
 		{
 			name: "tuple1",
 			line: `(v1,)`,
-			want: &TupleLitExpr{Value: []Expression{&IdentExpr{Value: "v1"}}},
+			want: &ast.TupleLitExpr{Value: []ast.Expression{&ast.IdentExpr{Value: "v1"}}},
 		},
 		{
 			name: "tuple2",
 			line: `(v1,v2,)`,
-			want: &TupleLitExpr{Value: []Expression{&IdentExpr{Value: "v1"}, &IdentExpr{Value: "v2"}}},
+			want: &ast.TupleLitExpr{Value: []ast.Expression{&ast.IdentExpr{Value: "v1"}, &ast.IdentExpr{Value: "v2"}}},
 		},
 		{
 			name: "group",
 			line: `(v1)`,
-			want: &ParenExpr{Expr: &IdentExpr{Value: "v1"}},
+			want: &ast.ParenExpr{Expr: &ast.IdentExpr{Value: "v1"}},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewReporter("", tt.line)
-			l := NewLexer(tt.line, r)
+			r := diagnostics.NewReporter("", tt.line)
+			l := lexer.NewLexer(tt.line, r)
 			p := NewParser(l, r)
 			got := p.ParseExpr()
 			if len(r.Diagnostics()) > 0 {
@@ -316,8 +320,8 @@ func Test_parserImpl_ParseCode(t *testing.T) {
 	let b = "20";
 	let add = fn (x, y) { c = a * a; return c *b;};
 	`
-	r := NewReporter("", input)
-	l := NewLexer(input, r)
+	r := diagnostics.NewReporter("", input)
+	l := lexer.NewLexer(input, r)
 	p := NewParser(l, r)
 	code := p.ParseCode()
 
@@ -328,19 +332,19 @@ func Test_parserImpl_ParseCode(t *testing.T) {
 	}
 	tests := []struct {
 		name string
-		want Statement
+		want ast.Statement
 	}{
 		{
 			name: "let int",
-			want: &LetStmt{},
+			want: &ast.LetStmt{},
 		},
 		{
 			name: "let string",
-			want: &LetStmt{},
+			want: &ast.LetStmt{},
 		},
 		{
 			name: "let fn",
-			want: &LetStmt{},
+			want: &ast.LetStmt{},
 		},
 	}
 	for i, tt := range tests {

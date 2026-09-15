@@ -1,9 +1,11 @@
-package mk
+package runtime
+
+import "mk/internal/oop"
 
 type Env struct {
 	outer *Env
 
-	store map[string]Obj
+	store map[string]oop.Obj
 }
 
 func (e *Env) PutString(name string, val string) {
@@ -15,11 +17,11 @@ func (e *Env) PutInt(name string, val int64) {
 func (e *Env) PutBool(name string, val bool) {
 }
 
-func (e *Env) Put(name string, val Obj) {
+func (e *Env) Put(name string, val oop.Obj) {
 	e.store[name] = val
 }
 
-func (e *Env) Get(name string) Obj {
+func (e *Env) Get(name string) oop.Obj {
 	obj, ok := e.store[name]
 	if ok {
 		return obj
@@ -33,6 +35,6 @@ func (e *Env) Get(name string) Obj {
 func NewEnv(p *Env) *Env {
 	return &Env{
 		outer: p,
-		store: map[string]Obj{},
+		store: map[string]oop.Obj{},
 	}
 }

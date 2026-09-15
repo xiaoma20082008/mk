@@ -1,6 +1,9 @@
-package mk
+package ast
 
-import "strings"
+import (
+	"mk/internal/token"
+	"strings"
+)
 
 type Visitor interface {
 	VisitProgram(*Program, any) (Node, error)
@@ -55,48 +58,48 @@ type Program struct {
 }
 
 type IdentExpr struct {
-	Token Token
+	Token token.Token
 	Value string
 }
 
 type DotExpr struct {
-	Token Token
+	Token token.Token
 	Lhs   Expression
 	Rhs   *IdentExpr
 }
 
 type IndexExpr struct {
-	Token Token
+	Token token.Token
 	Lhs   Expression
 	Index Expression
 }
 
 type UnaryExpr struct {
-	Op    Token
+	Op    token.Token
 	Right Expression
 }
 
 type BinaryExpr struct {
 	Lhs Expression
-	Op  Token
+	Op  token.Token
 	Rhs Expression
 }
 
 type CallExpr struct {
-	Token Token
+	Token token.Token
 	Fn    Expression
 	Args  []Expression
 }
 
 type TernaryExpr struct {
-	Token Token
+	Token token.Token
 	Cond  Expression
 	Then  Expression
 	Else  Expression
 }
 
 type LiteralExpr[T bool | string | int64 | []Expression | map[Expression]Expression] struct {
-	Token Token
+	Token token.Token
 	Value T
 }
 
@@ -108,55 +111,55 @@ type TupleLitExpr LiteralExpr[[]Expression]
 type MapLitExpr LiteralExpr[map[Expression]Expression]
 
 type AssignExpr struct {
-	Token Token
+	Token token.Token
 	Lhs   Expression
 	Rhs   Expression
 }
 
 type FnExpr struct {
-	Token Token
+	Token token.Token
 	Args  []*IdentExpr
 	Body  *BlockStmt
 }
 
 type ParenExpr struct {
-	Token Token
+	Token token.Token
 	Expr  Expression
 }
 
 type LetStmt struct {
-	Token Token
+	Token token.Token
 	Name  *IdentExpr
 	Value Expression
 }
 
 type IfStmt struct {
-	Token Token
+	Token token.Token
 	Cond  Expression
 	Then  *BlockStmt
 	Else  *BlockStmt
 }
 
 type WhileStmt struct {
-	Token Token
+	Token token.Token
 	Cond  Expression
 	Body  *BlockStmt
 }
 type BlockStmt struct {
-	Token      Token
+	Token      token.Token
 	Statements []Statement
 }
 type ReturnStmt struct {
-	Token Token
+	Token token.Token
 	Value Expression
 }
 type ExprStmt struct {
-	Token Token
+	Token token.Token
 	Expr  Expression
 }
 
 type ClassStmt struct {
-	Token Token
+	Token token.Token
 	Name  *IdentExpr
 }
 
