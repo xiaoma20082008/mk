@@ -13,34 +13,34 @@ func TestEvaluator_Eval(t *testing.T) {
 		line string
 		want string
 	}{
-		// {
-		// 	name: "add",
-		// 	line: `-1>2?"a":"b";`,
-		// 	want: `b`,
-		// },
-		// {
-		// 	name: "eval add",
-		// 	line: `let add = fn(x,y){return x+y;};
-		// 	add(1,2);
-		// 	`,
-		// 	want: `3`,
-		// },
-		// {
-		// 	name: "eval add",
-		// 	line: `let add = fn(x,y){ c = x+y; return c*c;};
-		// 	add(1,2);
-		// 	`,
-		// 	want: `9`,
-		// },
-		// {
-		// 	name: "eval let plus",
-		// 	line: `let a = 10+20;`,
-		// 	want: `30`,
-		// },
+		{
+			name: "add",
+			line: `-1>2?"a":"b";`,
+			want: `b`,
+		},
+		{
+			name: "eval add",
+			line: `let add = fn(x,y){return x+y;};
+			add(1,2);
+			`,
+			want: `3`,
+		},
+		{
+			name: "eval add",
+			line: `let add = fn(x,y){ c = x+y; return c*c;};
+			add(1,2);
+			`,
+			want: `9`,
+		},
 		{
 			name: "eval let plus",
-			line: `let a = 10+b;`,
-			want: `err`,
+			line: `let a = 10+20;`,
+			want: `30`,
+		},
+		{
+			name: "eval let plus",
+			line: `let b = 20;let a = 10+b;`,
+			want: `30`,
 		},
 	}
 	for _, tt := range tests {
