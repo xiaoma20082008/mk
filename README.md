@@ -38,7 +38,15 @@ go run main/main.go
 
 - [x] `os.Stdout`
 
-### Phase 8: JIT
+### Phase 8: Bytecode VM
 
-- [ ] bytecode
+- [x] bytecode: 基于栈的指令集（`internal/opcode`）
+- [x] compiler: AST -> 字节码（`internal/compiler`）
+- [x] stack-based interpreter: 栈式虚拟机（`internal/vm`）
+- [ ] closures: 闭包与自由变量捕获（`OpClosure` / `OpGetFree`）
+- [x] builtins: `len` / `puts` / `print` / `type` / `first` / `last` / `push`（`internal/builtin`）
+- [x] engine: 统一的执行引擎抽象（`internal/interp`）
+
+### Phase 9: JIT
+
 - [ ] JIT interceptor

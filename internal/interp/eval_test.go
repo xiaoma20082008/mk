@@ -1,9 +1,10 @@
-package runtime
+package interp
 
 import (
 	"mk/internal/diagnostics"
 	"mk/internal/lexer"
 	"mk/internal/parser"
+	"mk/internal/runtime"
 	"testing"
 )
 
@@ -49,7 +50,7 @@ func TestEvaluator_Eval(t *testing.T) {
 			l := lexer.NewLexer(tt.line, r)
 			p := parser.NewParser(l, r)
 			program := p.ParseCode()
-			env := NewEnv(nil)
+			env := runtime.NewEnv(nil)
 			e := NewEvaluator(env, r)
 			res := e.Eval(program)
 			if len(r.Diagnostics()) > 0 {

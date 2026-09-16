@@ -106,6 +106,10 @@ var precedences = map[TokenType]int{
 	LE: 25, // <=
 	GE: 26, // >=
 
+	// 位运算
+	LTLT: 27, // <<
+	GTGT: 28, // >>
+
 	// 算术运算
 	PLUS:    31, // +
 	MINUS:   32, // -

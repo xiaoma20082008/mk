@@ -53,6 +53,9 @@ type Expression interface {
 	exprNode()
 }
 
+type CompilationUnit struct {
+}
+
 type Program struct {
 	Statements []Statement
 }
