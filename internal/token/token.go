@@ -66,8 +66,6 @@ const (
 	CLASS    = "CLASS"
 	STRUCT   = "STRUCT"
 	NEW      = "NEW"
-	TYPEOF   = "TYPEOF"
-	SIZEOF   = "SIZEOF"
 )
 
 var DUMMY = Token{ERR, "", 0, 0, 0}
@@ -84,8 +82,6 @@ var keywords = map[string]TokenType{
 	"else":   ELSE,
 	"while":  WHILE,
 	"class":  CLASS,
-	"typeof": TYPEOF,
-	"sizeof": SIZEOF,
 	"self":   SELF,
 	"new":    NEW,
 	"struct": STRUCT,

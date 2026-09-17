@@ -65,7 +65,7 @@ func (c *compiler) Compile(node ast.Node) ([]oop.Obj, opcode.Instructions, error
 	}
 	_, err := node.Accept(c, nil)
 	if err != nil {
-		return nil, nil, nil
+		return nil, nil, err
 	}
 	return c.constants, c.currentInstructions(), nil
 }

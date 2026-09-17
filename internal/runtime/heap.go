@@ -1,24 +1,30 @@
 package runtime
 
-import "mk/internal/gc"
+import (
+	"errors"
+	"mk/internal/oop"
+)
 
-// Heap 语言运行期的堆。真正的分配与回收策略由 gc 包提供，
-// 目前 gc.New() 返回的是引用计数的空实现，等 GC 落地后这里无需改动。
-type Heap struct {
-	collector gc.GarbageCollector
-	barrier   gc.WriteBarrier
+var (
+	ErrOOM           = errors.New("out of memory: heap exhausted")
+	ErrInvalidObject = errors.New("invalid object pointer or address")
+)
+
+type Heap interface {
+	// Allocate 分配指定大小（字节）的连续物理空间。
+	Allocate(size uint32) (oop.RawSlot, error)
+
+	// Free 释放分配的Slot。
+	Free(slot oop.RawSlot)
+
+	TotalBytes() uint64     // 堆的总物理限制容量（单位：字节）
+	AllocatedBytes() uint64 // 堆当前已分配并被占用的容量（单位：字节）
+	AvailableBytes() uint64 // 堆当前还剩余的可用容量（单位：字节）
+	ResetCounters()         // 重置统计计数器（通常在一次完全 GC 结束后调用）
+
+	// Contains 判定 Slot 是否属于当前堆的管辖范围。
+	Contains(slot oop.RawSlot) bool
+
+	// VisitObjects 遍历堆中的所有对象。
+	VisitObjects(visitor func(slot oop.RawSlot) bool)
 }
-
-func NewHeap() *Heap {
-	collector, barrier := gc.New()
-	return &Heap{
-		collector: collector,
-		barrier:   barrier,
-	}
-}
-
-// Collector 返回堆使用的垃圾回收器
-func (h *Heap) Collector() gc.GarbageCollector { return h.collector }
-
-// Barrier 返回写屏障，供赋值路径在引用变化时通知回收器
-func (h *Heap) Barrier() gc.WriteBarrier { return h.barrier }

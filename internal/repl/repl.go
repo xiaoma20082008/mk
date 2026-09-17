@@ -39,7 +39,7 @@ func Start(in io.Reader, out io.Writer) {
 		interp.KindTree: interp.New(interp.KindTree, env),
 		interp.KindVM:   interp.New(interp.KindVM, env),
 	}
-	kind := interp.KindTree
+	kind := interp.KindVM
 	engine := engines[kind]
 
 	for {

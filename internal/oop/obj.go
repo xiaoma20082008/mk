@@ -37,6 +37,34 @@ type Obj interface {
 	Inspect() string
 }
 
+type ObjectHeader struct {
+	// 1. 类型标识 (1 字节)
+	// 决定了当 GC 扫描到这个对象时，该把它断言为哪种具体结构体
+	// 比如 TypeArray 时，GC 就知道去遍历它的切片槽位（Slots）
+	dataType ObjType
+
+	// 2. GC 颜色状态 (1 字节)
+	// 支持手写三色标记法核心（White, Gray, Black）。
+	// 在分配时默认是 White。扫描后变 Gray 投入队列。子节点扫描完变 Black。
+	gcColor uint8
+
+	// 3. 预留对齐字节 (2 字节)
+	// 纯学习目的：模拟 C/C++ 内存对齐（Padding）。
+	// 保持前 4 个字节的紧凑排列，让下方的 lockWord 完美对齐到 4 字节边界。
+	_padding uint16
+
+	// 4. 多线程同步锁状态（Lock Word / Mark Word） (4 字节)
+	// 极其重要！当你的脚本语言支持多线程时，两个虚拟线程可能会并发执行 `obj.field = value`。
+	// 我们用一个 uint32 模拟底层硬件的 CAS 自旋锁。
+	// 0: 无锁， 1: 有锁。未来甚至可以升级为存储独占锁的虚拟线程 ID（偏向锁）。
+	lockWord uint32
+
+	// 5. 堆分配大小统计 (4 字节)
+	// 手写 GC 的清扫（Sweep）阶段或内存统计时，GC 必须知道这个对象在堆中到底占了多少字节。
+	// 特别是 ObjString 和 ObjArray，它们在被创建时长度不同，占用的堆内存大小是动态的。
+	allocatedSize uint32
+}
+
 type IntObj struct {
 	Value int64
 }

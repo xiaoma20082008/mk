@@ -1,10 +1,9 @@
 package vm
 
 import (
-	"fmt"
+	"sync/atomic"
 
 	"mk/internal/oop"
-	"mk/internal/opcode"
 	"mk/internal/runtime"
 )
 
@@ -14,581 +13,137 @@ const (
 	MaxFrames   = 1024
 )
 
-// VM 基于栈的解释器：一条求值栈 + 若干调用栈帧，逐条解释执行字节码。
+// 编译期生成的全局线程 ID 计数器，保证每个虚拟线程有唯一标识。
+var nextThreadID int32
+
+// VM 是 runtime.VM 的具体实现：持有常量池、全局区与入口闭包，
+// 并负责创建与驱动线程执行字节码。GC 收集器与堆通过 SetCollector / NewHeap 注入。
 type VM struct {
-	constants    []oop.Obj           // 常量池
-	instructions opcode.Instructions // 字节码
+	gc      runtime.GarbageCollector
+	threads map[int32]runtime.Thread
 
-	stack []oop.Obj
-	sp    int // 指向下一个空闲的栈槽位
+	constants []oop.Obj
+	globals   []oop.Obj
+	entry     *oop.Closure
 
-	globals []oop.Obj
+	result oop.Obj
+	err    error
 
-	frames      []*Frame
-	framesIndex int
-
-	// lastPopped 最近一次出栈的值，即整段程序的「执行结果」
-	lastPopped oop.Obj
-
-	heap *runtime.Heap
+	globalNames map[string]oop.Obj
 }
 
-// NewVMWithGlobals 复用已有的全局变量表，用于 REPL 场景跨行保持状态
-func NewVMWithGlobals(globals []oop.Obj, constants []oop.Obj, instructions opcode.Instructions) *VM {
-	if globals == nil {
-		globals = make([]oop.Obj, GlobalsSize)
-	}
-	frames := make([]*Frame, MaxFrames)
+// 编译期断言：*VM 必须满足 runtime.VM 接口。
+var _ runtime.VM = (*VM)(nil)
+
+// NewHeap 创建给定容量的托管堆（runtime.Heap）。
+func NewHeap(heapSize uint64) runtime.Heap {
+	return newHeap(heapSize)
+}
+
+// NewVM 创建一台虚拟机实例。
+func NewVM() *VM {
 	return &VM{
-		constants:    constants,
-		instructions: instructions,
-
-		stack:       make([]oop.Obj, StackSize),
-		sp:          0,
-		globals:     globals,
-		frames:      frames,
-		framesIndex: 1,
-
-		heap: runtime.NewHeap(),
+		threads:     make(map[int32]runtime.Thread),
+		globals:     make([]oop.Obj, GlobalsSize),
+		globalNames: make(map[string]oop.Obj),
 	}
 }
 
-// Result 返回程序执行的结果（最近一次出栈的值）
-func (vm *VM) Result() oop.Obj {
-	if vm.lastPopped == nil {
-		return oop.O_NULL
+// Load 注入本轮要执行的入口闭包、常量池与全局区。
+func (vm *VM) Load(entry *oop.Closure, constants, globals []oop.Obj) {
+	vm.entry = entry
+	vm.constants = constants
+	if globals == nil {
+		vm.globals = make([]oop.Obj, GlobalsSize)
+	} else {
+		vm.globals = globals
 	}
-	return vm.lastPopped
 }
 
-func (vm *VM) Globals() []oop.Obj {
-	return vm.globals
-}
+// Constants 返回当前常量池（线程执行 OpConstant 时按下标取用）。
+func (vm *VM) Constants() []oop.Obj { return vm.constants }
 
-func (vm *VM) StackTop() oop.Obj {
-	if vm.sp == 0 {
-		return nil
-	}
-	return vm.stack[vm.sp-1]
-}
+// Globals 返回全局区切片（跨行复用时由调用方取回保存）。
+func (vm *VM) Globals() []oop.Obj { return vm.globals }
 
-// Run 逐条解释执行指令，直到主栈帧结束（或发生运行时错误）
-func (vm *VM) Run() error {
-	for vm.framesIndex > 0 {
-		frame := vm.frames[vm.framesIndex-1]
-		ins := frame.Instructions()
+// Entry 返回入口闭包（顶层脚本被包装成的闭包）。
+func (vm *VM) Entry() *oop.Closure { return vm.entry }
 
-		if frame.ip >= len(ins) {
-			// 主程序指令流自然结束；函数体一定以返回指令结尾，正常不会走到这里
-			if vm.framesIndex == 1 {
-				return nil
-			}
-			vm.popFrame()
-			continue
-		}
+// Result 返回最近一次执行的结果与错误。
+func (vm *VM) Result() (oop.Obj, error) { return vm.result, vm.err }
 
-		ip := frame.ip
-		op := opcode.Opcode(ins[ip])
-		def, err := opcode.Lookup(byte(op))
-		if err != nil {
-			return err
-		}
-
-		// 默认前进到 next 条指令；跳转类指令会在 switch 中改写 ip
-		width := 1
-		for _, w := range def.Width {
-			width += w
-		}
-		frame.ip = ip + width
-
-		switch op {
-		case opcode.OpConstant:
-			idx := int(opcode.ReadUint16(ins[ip+1:]))
-			if idx >= len(vm.constants) {
-				return fmt.Errorf("invalid constant index: %d", idx)
-			}
-			if err := vm.push(vm.constants[idx]); err != nil {
-				return err
-			}
-
-		case opcode.OpNull:
-			if err := vm.push(oop.O_NULL); err != nil {
-				return err
-			}
-		case opcode.OpTrue:
-			if err := vm.push(oop.O_TRUE); err != nil {
-				return err
-			}
-		case opcode.OpFalse:
-			if err := vm.push(oop.O_FALSE); err != nil {
-				return err
-			}
-
-		case opcode.OpPop:
-			vm.pop()
-
-		case opcode.OpDup:
-			if vm.sp == 0 {
-				return fmt.Errorf("nothing to duplicate on the stack")
-			}
-			if err := vm.push(vm.stack[vm.sp-1]); err != nil {
-				return err
-			}
-
-		case opcode.OpAdd, opcode.OpSub, opcode.OpMul, opcode.OpDiv, opcode.OpMod,
-			opcode.OpEqual, opcode.OpNotEqual,
-			opcode.OpGreater, opcode.OpGreaterEqual, opcode.OpLess, opcode.OpLessEqual,
-			opcode.OpShiftLeft, opcode.OpShiftRight:
-			if err := vm.executeBinaryOperation(op); err != nil {
-				return err
-			}
-
-		case opcode.OpBang:
-			if err := vm.push(oop.NewBool(!oop.IsTruthy(vm.pop()))); err != nil {
-				return err
-			}
-		case opcode.OpMinus:
-			val, ok := vm.pop().(*oop.IntObj)
-			if !ok {
-				return fmt.Errorf("unsupported type for -: expected INT")
-			}
-			if err := vm.push(oop.NewInt(-val.Value)); err != nil {
-				return err
-			}
-		case opcode.OpTilde:
-			val, ok := vm.pop().(*oop.IntObj)
-			if !ok {
-				return fmt.Errorf("unsupported type for ~: expected INT")
-			}
-			if err := vm.push(oop.NewInt(^val.Value)); err != nil {
-				return err
-			}
-
-		case opcode.OpJump:
-			frame.ip = int(opcode.ReadUint16(ins[ip+1:]))
-
-		case opcode.OpJumpNotTruthy:
-			if !oop.IsTruthy(vm.pop()) {
-				frame.ip = int(opcode.ReadUint16(ins[ip+1:]))
-			}
-
-		case opcode.OpSetGlobal:
-			idx := int(opcode.ReadUint16(ins[ip+1:]))
-			if idx >= len(vm.globals) {
-				if err := vm.growGlobals(idx + 1); err != nil {
-					return err
-				}
-			}
-			vm.globals[idx] = vm.pop()
-
-		case opcode.OpGetGlobal:
-			idx := int(opcode.ReadUint16(ins[ip+1:]))
-			if idx >= len(vm.globals) {
-				return fmt.Errorf("invalid global index: %d", idx)
-			}
-			val := vm.globals[idx]
-			if val == nil {
-				val = oop.O_NULL
-			}
-			if err := vm.push(val); err != nil {
-				return err
-			}
-
-		case opcode.OpSetLocal:
-			idx := int(opcode.ReadUint8(ins[ip+1:]))
-			if frame.basePointer+idx >= StackSize {
-				return fmt.Errorf("invalid local index: %d", idx)
-			}
-			vm.stack[frame.basePointer+idx] = vm.pop()
-
-		case opcode.OpGetLocal:
-			idx := int(opcode.ReadUint8(ins[ip+1:]))
-			if frame.basePointer+idx >= StackSize {
-				return fmt.Errorf("invalid local index: %d", idx)
-			}
-			val := vm.stack[frame.basePointer+idx]
-			if val == nil {
-				val = oop.O_NULL
-			}
-			if err := vm.push(val); err != nil {
-				return err
-			}
-
-		case opcode.OpSetFree:
-			idx := int(opcode.ReadUint8(ins[ip+1:]))
-			if idx >= len(frame.cl.Free) {
-				return fmt.Errorf("invalid free variable index: %d", idx)
-			}
-			frame.cl.Free[idx] = vm.pop()
-
-		case opcode.OpGetFree:
-			idx := int(opcode.ReadUint8(ins[ip+1:]))
-			if idx >= len(frame.cl.Free) {
-				return fmt.Errorf("invalid free variable index: %d", idx)
-			}
-			if err := vm.push(frame.cl.Free[idx]); err != nil {
-				return err
-			}
-
-		case opcode.OpGetBuiltin:
-			idx := int(opcode.ReadUint8(ins[ip+1:]))
-			if idx >= len(oop.Builtins) {
-				return fmt.Errorf("invalid builtin index: %d", idx)
-			}
-			if err := vm.push(oop.Builtins[idx]); err != nil {
-				return err
-			}
-
-		case opcode.OpNew:
-			// todo 实现new指令,方便后期实现GC
-			// vm.heap.Collector().New()
-		case opcode.OpCall:
-			numArgs := int(opcode.ReadUint8(ins[ip+1:]))
-			if vm.sp-1-numArgs < 0 {
-				return fmt.Errorf("not enough arguments on the stack for call")
-			}
-			switch callee := vm.stack[vm.sp-1-numArgs].(type) {
-			case *oop.Closure:
-				if err := vm.callClosure(callee, numArgs); err != nil {
-					return err
-				}
-			case *oop.Builtin:
-				if err := vm.callBuiltin(callee, numArgs); err != nil {
-					return err
-				}
-			default:
-				return fmt.Errorf("calling a non-function value")
-			}
-
-		case opcode.OpReturnValue:
-			value := vm.pop()
-			frame := vm.popFrame()
-			if vm.framesIndex == 0 {
-				// 顶层的 return 直接结束程序
-				vm.lastPopped = value
-				return nil
-			}
-			vm.sp = frame.basePointer - 1
-			if err := vm.push(value); err != nil {
-				return err
-			}
-
-		case opcode.OpReturn:
-			frame := vm.popFrame()
-			if vm.framesIndex == 0 {
-				vm.lastPopped = oop.O_NULL
-				return nil
-			}
-			vm.sp = frame.basePointer - 1
-			if err := vm.push(oop.O_NULL); err != nil {
-				return err
-			}
-
-		case opcode.OpClosure:
-
-		case opcode.OpList:
-			n := int(opcode.ReadUint16(ins[ip+1:]))
-			list := oop.NewList()
-			if err := vm.collect(vm.sp, n, func(o oop.Obj) { list.Add(o) }); err != nil {
-				return err
-			}
-			vm.sp -= n
-			if err := vm.push(list); err != nil {
-				return err
-			}
-
-		case opcode.OpTuple:
-			n := int(opcode.ReadUint16(ins[ip+1:]))
-			values := make([]oop.Obj, 0, n)
-			if err := vm.collect(vm.sp, n, func(o oop.Obj) { values = append(values, o) }); err != nil {
-				return err
-			}
-			vm.sp -= n
-			if err := vm.push(oop.NewTuple(values...)); err != nil {
-				return err
-			}
-
-		case opcode.OpMap:
-			n := int(opcode.ReadUint16(ins[ip+1:]))
-			m := oop.NewMap()
-			keys := make([]oop.Obj, 0, n/2)
-			values := make([]oop.Obj, 0, n/2)
-			if err := vm.collect(vm.sp, n, func(o oop.Obj) {
-				if len(keys) == len(values) {
-					keys = append(keys, o)
-				} else {
-					values = append(values, o)
-				}
-			}); err != nil {
-				return err
-			}
-			vm.sp -= n
-			for i := range keys {
-				m.Put(keys[i], values[i])
-			}
-			if err := vm.push(m); err != nil {
-				return err
-			}
-
-		case opcode.OpIndex:
-			index := vm.pop()
-			left := vm.pop()
-			val, err := vm.evalIndexExpr(left, index)
-			if err != nil {
-				return err
-			}
-			if err := vm.push(val); err != nil {
-				return err
-			}
-
-		case opcode.OpSetIndex:
-			value := vm.pop()
-			index := vm.pop()
-			target := vm.pop()
-			if err := vm.assignIndexExpr(target, index, value); err != nil {
-				return err
-			}
-			// 下标赋值本身也是一个表达式，把写入的值留在栈顶
-			if err := vm.push(value); err != nil {
-				return err
-			}
-
-		default:
-			return fmt.Errorf("unknown opcode: %s", op)
-		}
-	}
-	return nil
+// SetResult 由执行线程在执行结束或出错时回填结果。
+func (vm *VM) SetResult(obj oop.Obj, err error) {
+	vm.result = obj
+	vm.err = err
 }
 
 // ------------------------------------------------------------------------------------------
-// 求值辅助
+// runtime.VM 接口实现
 // ------------------------------------------------------------------------------------------
 
-func (vm *VM) executeBinaryOperation(op opcode.Opcode) error {
-	rhs := vm.pop()
-	lhs := vm.pop()
+func (vm *VM) GetCollector() runtime.GarbageCollector { return vm.gc }
 
-	switch op {
-	case opcode.OpEqual:
-		return vm.push(oop.NewBool(equalObjs(lhs, rhs)))
-	case opcode.OpNotEqual:
-		return vm.push(oop.NewBool(!equalObjs(lhs, rhs)))
+func (vm *VM) SetCollector(gc runtime.GarbageCollector) {
+	vm.gc = gc
+	// 若收集器支持反向绑定（拿到 VM 的协调器/根扫描器角色），则把自己注入进去。
+	if cfg, ok := gc.(interface{ Bind(runtime.VM) }); ok {
+		cfg.Bind(vm)
 	}
+}
 
-	li, lhsIsInt := lhs.(*oop.IntObj)
-	ri, rhsIsInt := rhs.(*oop.IntObj)
-	if lhsIsInt && rhsIsInt {
-		return vm.executeIntegerBinaryOperation(op, li.Value, ri.Value)
+func (vm *VM) RequestSafepoint() {}
+func (vm *VM) ReleaseSafepoint() {}
+func (vm *VM) Start()            {}
+func (vm *VM) StopTheWorld()     {}
+
+func (vm *VM) RegisterThread(t runtime.Thread)   { vm.threads[t.ID()] = t }
+func (vm *VM) UnregisterThread(t runtime.Thread) { delete(vm.threads, t.ID()) }
+func (vm *VM) GetAllThreads() []runtime.Thread {
+	out := make([]runtime.Thread, 0, len(vm.threads))
+	for _, t := range vm.threads {
+		out = append(out, t)
 	}
+	return out
+}
 
-	if op == opcode.OpAdd {
-		ls, lhsIsStr := lhs.(*oop.StringObj)
-		rs, rhsIsStr := rhs.(*oop.StringObj)
-		switch {
-		case lhsIsStr && rhsIsStr:
-			return vm.push(oop.NewString(ls.Value + rs.Value))
-		case lhsIsStr:
-			return vm.push(oop.NewString(ls.Value + rhs.Inspect()))
-		case rhsIsStr:
-			return vm.push(oop.NewString(lhs.Inspect() + rs.Value))
+func (vm *VM) ScanThreadRoots(gc runtime.GarbageCollector) {
+	for _, t := range vm.threads {
+		if sc, ok := t.(interface {
+			ScanRoots(runtime.GarbageCollector)
+		}); ok {
+			sc.ScanRoots(gc)
 		}
 	}
-
-	return fmt.Errorf("unsupported types for %s: %s %s", op, lhs.Type(), rhs.Type())
 }
 
-func (vm *VM) executeIntegerBinaryOperation(op opcode.Opcode, lv, rv int64) error {
-	switch op {
-	case opcode.OpAdd:
-		return vm.push(oop.NewInt(lv + rv))
-	case opcode.OpSub:
-		return vm.push(oop.NewInt(lv - rv))
-	case opcode.OpMul:
-		return vm.push(oop.NewInt(lv * rv))
-	case opcode.OpDiv:
-		if rv == 0 {
-			return fmt.Errorf("divided by zero")
-		}
-		return vm.push(oop.NewInt(lv / rv))
-	case opcode.OpMod:
-		if rv == 0 {
-			return fmt.Errorf("divided by zero")
-		}
-		return vm.push(oop.NewInt(lv % rv))
-	case opcode.OpEqual:
-		return vm.push(oop.NewBool(lv == rv))
-	case opcode.OpNotEqual:
-		return vm.push(oop.NewBool(lv != rv))
-	case opcode.OpGreater:
-		return vm.push(oop.NewBool(lv > rv))
-	case opcode.OpGreaterEqual:
-		return vm.push(oop.NewBool(lv >= rv))
-	case opcode.OpLess:
-		return vm.push(oop.NewBool(lv < rv))
-	case opcode.OpLessEqual:
-		return vm.push(oop.NewBool(lv <= rv))
-	case opcode.OpShiftLeft:
-		return vm.push(oop.NewInt(lv << rv))
-	case opcode.OpShiftRight:
-		return vm.push(oop.NewInt(lv >> rv))
-	}
-	return fmt.Errorf("unknown integer operator: %s", op)
-}
-
-func (vm *VM) evalIndexExpr(left, index oop.Obj) (oop.Obj, error) {
-	switch {
-	case left.Type() == oop.OBJ_LIST && index.Type() == oop.OBJ_INT:
-		list := left.(*oop.ListObj)
-		return getSequence(list, int(index.(*oop.IntObj).Value))
-	case left.Type() == oop.OBJ_TUPLE && index.Type() == oop.OBJ_INT:
-		tuple := left.(*oop.TupleObj)
-		return getSequence(tuple, int(index.(*oop.IntObj).Value))
-	case left.Type() == oop.OBJ_MAP:
-		return left.(*oop.MapObj).Get(index), nil
-	}
-	return nil, fmt.Errorf("index operator not supported: %s[%s]", left.Type(), index.Type())
-}
-
-func (vm *VM) assignIndexExpr(target, index, value oop.Obj) error {
-	switch {
-	case target.Type() == oop.OBJ_LIST && index.Type() == oop.OBJ_INT:
-		return setSequence(target.(*oop.ListObj), int(index.(*oop.IntObj).Value), value)
-	case target.Type() == oop.OBJ_TUPLE && index.Type() == oop.OBJ_INT:
-		return setSequence(target.(*oop.TupleObj), int(index.(*oop.IntObj).Value), value)
-	case target.Type() == oop.OBJ_MAP:
-		target.(*oop.MapObj).Put(index, value)
-		return nil
-	}
-	return fmt.Errorf("index assignment not supported: %s[%s]", target.Type(), index.Type())
-}
-
-type sequence interface {
-	Len() int
-}
-
-func getSequence(s sequence, i int) (oop.Obj, error) {
-	if i < 0 || i >= s.Len() {
-		return nil, fmt.Errorf("index out of bounds: %d", i)
-	}
-	switch obj := s.(type) {
-	case *oop.ListObj:
-		return obj.Get(i), nil
-	case *oop.TupleObj:
-		return obj.Get(i), nil
-	}
-	return oop.O_NULL, nil
-}
-
-func setSequence(s sequence, i int, value oop.Obj) error {
-	if i < 0 || i >= s.Len() {
-		return fmt.Errorf("index out of bounds: %d", i)
-	}
-	switch obj := s.(type) {
-	case *oop.ListObj:
-		obj.Set(i, value)
-	case *oop.TupleObj:
-		obj.Set(i, value)
-	}
-	return nil
-}
-
-// ------------------------------------------------------------------------------------------
-// 调用约定
-// ------------------------------------------------------------------------------------------
-
-func (vm *VM) callClosure(cl *oop.Closure, numArgs int) error {
-	return nil
-}
-
-func (vm *VM) callBuiltin(b *oop.Builtin, numArgs int) error {
-	args := make([]oop.Obj, numArgs)
-	copy(args, vm.stack[vm.sp-numArgs:vm.sp])
-
-	result, err := b.Fn(args...)
-	vm.sp = vm.sp - numArgs - 1
-	if err != nil {
-		return err
-	}
-	if result == nil {
-		result = oop.O_NULL
-	}
-	return vm.push(result)
-}
-
-// ------------------------------------------------------------------------------------------
-// 栈操作
-// ------------------------------------------------------------------------------------------
-
-func (vm *VM) push(o oop.Obj) error {
-	if vm.sp >= StackSize {
-		return fmt.Errorf("stack overflow")
-	}
-	vm.stack[vm.sp] = o
-	vm.sp++
-	return nil
-}
-
-func (vm *VM) pop() oop.Obj {
-	if vm.sp == 0 {
-		return nil
-	}
-	v := vm.stack[vm.sp-1]
-	vm.sp--
-	vm.lastPopped = v
-	return v
-}
-
-func (vm *VM) top() oop.Obj {
-	if vm.sp == 0 {
-		return nil
-	}
-	return vm.stack[vm.sp-1]
-}
-
-func (vm *VM) collect(sp, n int, fn func(oop.Obj)) error {
-	if sp-n < 0 {
-		return fmt.Errorf("not enough elements on the stack")
-	}
-	for i := sp - n; i < sp; i++ {
-		fn(vm.stack[i])
-	}
-	return nil
-}
-
-func (vm *VM) growGlobals(size int) error {
-	if size > GlobalsSize {
-		return fmt.Errorf("too many global variables")
-	}
-	for len(vm.globals) < size {
-		vm.globals = append(vm.globals, nil)
-	}
-	return nil
-}
-
-func (vm *VM) pushFrame(f *Frame) {
-	vm.frames[vm.framesIndex] = f
-	vm.framesIndex++
-}
-
-func (vm *VM) popFrame() *Frame {
-	vm.framesIndex--
-	return vm.frames[vm.framesIndex]
-}
-
-// equalObjs 值相等比较：整数/字符串按值，布尔/null 是单例可直接比指针
-func equalObjs(lhs, rhs oop.Obj) bool {
-	if lhs == nil || rhs == nil {
-		return lhs == rhs
-	}
-	switch left := lhs.(type) {
-	case *oop.IntObj:
-		if right, ok := rhs.(*oop.IntObj); ok {
-			return left.Value == right.Value
-		}
-	case *oop.StringObj:
-		if right, ok := rhs.(*oop.StringObj); ok {
-			return left.Value == right.Value
+func (vm *VM) GetGlobalRoots() []oop.Obj {
+	roots := make([]oop.Obj, 0, len(vm.globals))
+	for _, g := range vm.globals {
+		if g != nil {
+			roots = append(roots, g)
 		}
 	}
-	return lhs == rhs
+	return roots
+}
+
+func (vm *VM) SetGlobal(name string, val oop.Obj) { vm.globalNames[name] = val }
+
+func (vm *VM) GetGlobal(name string) (oop.Obj, bool) {
+	v, ok := vm.globalNames[name]
+	return v, ok
+}
+
+// NewThread 创建一条绑定到指定虚拟机的解释线程。
+func NewThread(v runtime.VM) runtime.Thread {
+	concrete, _ := v.(*VM)
+	t := &InterpreterThread{
+		id:     atomic.AddInt32(&nextThreadID, 1),
+		status: runtime.New,
+		vm:     concrete,
+		stack:  make([]oop.Obj, StackSize),
+		frames: make([]*StackFrame, 0, MaxFrames),
+		index:  -1,
+	}
+	return t
 }
