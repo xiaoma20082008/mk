@@ -66,8 +66,6 @@ const (
 	CLASS    = "CLASS"
 	STRUCT   = "STRUCT"
 	NEW      = "NEW"
-	TYPEOF   = "TYPEOF"
-	SIZEOF   = "SIZEOF"
 )
 
 var DUMMY = Token{ERR, "", 0, 0, 0}
@@ -84,8 +82,6 @@ var keywords = map[string]TokenType{
 	"else":   ELSE,
 	"while":  WHILE,
 	"class":  CLASS,
-	"typeof": TYPEOF,
-	"sizeof": SIZEOF,
 	"self":   SELF,
 	"new":    NEW,
 	"struct": STRUCT,
@@ -105,6 +101,10 @@ var precedences = map[TokenType]int{
 	GT: 24, // >
 	LE: 25, // <=
 	GE: 26, // >=
+
+	// 位运算
+	LTLT: 27, // <<
+	GTGT: 28, // >>
 
 	// 算术运算
 	PLUS:    31, // +

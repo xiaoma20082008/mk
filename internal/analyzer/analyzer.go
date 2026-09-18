@@ -12,3 +12,10 @@ type Analyzer interface {
 type analyzer struct {
 	r diagnostics.DiagnosticReporter
 }
+
+func New() Analyzer {
+	return &analyzer{}
+}
+
+func (a *analyzer) Resolve(p *ast.Program) {
+}

@@ -1,15 +1,16 @@
-package runtime
+package interp
 
 import (
 	"mk/internal/ast"
 	"mk/internal/diagnostics"
 	"mk/internal/oop"
 	"mk/internal/pretty"
+	"mk/internal/runtime"
 	"mk/internal/token"
 )
 
 type Evaluator struct {
-	env *Env
+	env *runtime.Env
 	r   diagnostics.DiagnosticReporter
 
 	ret oop.Obj
@@ -197,7 +198,7 @@ func (f *Evaluator) VisitFn(n *ast.FnExpr, x any) (ast.Node, error) {
 	definitionEnv := f.env
 	fo.Call = func(args []oop.Obj) (oop.Obj, bool) {
 		// 1. 创建临时环境
-		localEnv := NewEnv(definitionEnv)
+		localEnv := runtime.NewEnv(definitionEnv)
 		// 2. 绑定形参和实参
 		for i, param := range n.Args {
 			localEnv.Put(param.Value, args[i])
@@ -283,7 +284,7 @@ func (f *Evaluator) VisitDot(n *ast.DotExpr, x any) (ast.Node, error) {
 func (f *Evaluator) VisitIf(n *ast.IfStmt, x any) (ast.Node, error) {
 	n.Cond.Accept(f, x)
 	cond := f.ret
-	if isTruthy(cond) {
+	if oop.IsTruthy(cond) {
 		n.Then.Accept(f, x)
 	} else if n.Else != nil {
 		n.Else.Accept(f, x)
@@ -301,7 +302,7 @@ func (f *Evaluator) VisitLet(n *ast.LetStmt, x any) (ast.Node, error) {
 func (f *Evaluator) VisitWhile(n *ast.WhileStmt, x any) (ast.Node, error) {
 	for {
 		n.Cond.Accept(f, x)
-		if f.fin || !isTruthy(f.ret) {
+		if f.fin || !oop.IsTruthy(f.ret) {
 			break
 		}
 		n.Body.Accept(f, x)
@@ -336,7 +337,7 @@ func (f *Evaluator) VisitBlock(n *ast.BlockStmt, x any) (ast.Node, error) {
 // Class
 func (f *Evaluator) VisitClass(n *ast.ClassStmt, x any) (ast.Node, error) { return n, nil }
 
-func NewEvaluator(e *Env, r diagnostics.DiagnosticReporter) *Evaluator {
+func NewEvaluator(e *runtime.Env, r diagnostics.DiagnosticReporter) *Evaluator {
 	return &Evaluator{
 		env: e,
 		r:   r,
@@ -382,19 +383,29 @@ func evalIntOp(op string, lhs, rhs oop.Obj) oop.Obj {
 	}
 }
 
-func isTruthy(obj oop.Obj) bool {
-	if obj == nil {
-		return false
-	}
-	if _, ok := obj.(*oop.NullObj); ok {
-		return false
-	}
-	if v, ok := obj.(*oop.BoolObj); ok {
-		return v.Value
-	}
-	return true
-}
-
 type runtimeError struct {
 	msg string
+}
+
+// ------------------------------------------------------------------------------------------
+// Engine：树遍历实现
+// ------------------------------------------------------------------------------------------
+
+// Name 引擎的可读名字
+func (e *Evaluator) Name() string { return "ast tree-walking interpreter" }
+
+// Kind 引擎种类
+func (e *Evaluator) Kind() Kind { return KindTree }
+
+// Exec 直接在 AST 上递归求值，不产生任何中间表示。
+// 结果可能为 nil（比如整段程序只有 let 语句），调用方需自行判空。
+// 诊断信息写入传入的 reporter，与 repl 每行的 reporter 保持一致。
+func (e *Evaluator) Exec(p *ast.Program, r diagnostics.DiagnosticReporter) (oop.Obj, error) {
+	if p == nil {
+		return nil, nil
+	}
+	if r != nil {
+		e.r = r
+	}
+	return e.Eval(p), nil
 }

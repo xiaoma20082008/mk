@@ -23,8 +23,7 @@ MKIL 拥有分层的类型系统，兼顾了底层硬件映射的高效性与高
 ### 2.1 纯量与矢量类型 (Scalar & Vector Types)
 
 * `i1`：布尔类型。
-* `i8`, `i16`, `i32`, `i64`：无符号整数（符号由具体操作指令的语义决定）。
-* `u8`, `u16`, `u32`, `u64`：无符号整数（符号由具体操作指令的语义决定）。
+* `i8`, `i16`, `i32`, `i64`：有符号/无符号整数（符号由具体操作指令的语义决定）。
 * `f32`, `f64`：IEEE 754 浮点数。
 * `v4f32`：128位矢量，包含 4 个 32 位浮点数。
 * `v2i64`：128位矢量，包含 2 个 64 位整数。
@@ -110,13 +109,13 @@ MKIL 拥有分层的类型系统，兼顾了底层硬件映射的高效性与高
 
 显式写屏障字段写入指令。
 
-* `field.store`：写入标量或非托管数据（例如 `i32`, `f64`），AOT/JIT 编译器直接生成 hardware 存储指令，**无 GC 屏障开销**。
+* `field.store`：写入标量或非托管数据（例如 `i32`, `f64`），AOT/JIT 编译器直接生成硬件存储指令，**无 GC 屏障开销**。
 * `field.store_ref`：写入托管对象引用（`class` 类型），AOT/JIT 编译器扫描到此操作码时**强制自动内联 GC 写屏障（Write Barrier）**。
 * **语法**：
   * `field.store <field_type> class <ClassName>::<FieldName>, %obj, %val`
   * `field.store_ref class <ClassName>::<FieldName>, %obj, %val`
 
-### 4.4 泛型与高级多态指令
+### 4.4 现代化调用族指令 (Calling Interface)
 
 #### `call.virtual`
 
@@ -133,10 +132,10 @@ MKIL 拥有分层的类型系统，兼顾了底层硬件映射的高效性与高
 
 #### `call.native`
 
-**FFI指令。调用原生函数** 类似C#的P/Invoke机制
+**外部 FFI 接口指令。** 用于直接调用外部非托管 C 语言/Rust ABI 的物理动态库函数。带有显式 `unmanaged` 修饰符，强制 JIT/AOT 编译器在机器码生成阶段处理寄存器重排（SysV/AAPCS 适配）并自动前置插入 GC 线程隔离屏障，防止非托管执行流死锁托管世界的垃圾回收器。
 
-* **语法**：TODO
-* **示例**：TODO
+* **语法**：`%dst = call.native <ret_type> @MethodName(<args>) unmanaged`
+* **示例**：`%bytes_written = call.native i32 @write(i32 %fd, ptr %buf_ptr, i64 %len) unmanaged`
 
 #### `match.union`
 
@@ -288,12 +287,20 @@ struct FieldDefEntry {
 
 struct MethodDefEntry {
     u32 NameOffset;       // 方法名称在字符串池的偏移量
-    u32 RvaOrInterpret;   // 指向 .mkil 中该方法代码基本块的相对虚拟地址（RVA）
-    u16 Flags;            // 方法属性（如 Static, Virtual, Abstract）
-    u16 MaxStackRegs;     // 优化：该方法执行所需的最大虚拟寄存器窗口大小（取代原参数计数）
+    u32 RvaOrInterpret;   // 指向 .mkil 中该方法代码基本块的相对虚拟地址（RVA）。若该方法为 FFI 导入 (Flags 包含 METHOD_FLAG_FFI)，则此值重定向为指向 FfiImportDescriptor。
+    u16 Flags;            // 方法属性（如 Static, Virtual, Abstract, 0x8000=METHOD_FLAG_FFI）
+    u16 MaxStackRegs;     // 优化：该方法执行所需的最大虚拟寄存器窗口大小
     u32 ReturnTypeFlags;  // 返回值类型描述
     u32 SignatureBlobOff; // 指向方法参数完整签名流的符号池偏移量
     u64 Reserved;         // 保留对齐位，整个结构体完美达成 32 字节宽并进行 8 字节边界对齐
+};
+
+// FFI 原生外部库函数静态导入描述符
+struct FfiImportDescriptor {
+    u32 ModuleNameOffset; // 指向字符串池，如 "libc.so" 或 "kernel32.dll"
+    u32 EntryPointOffset; // 指向字符串池的具体 C 原生函数符号名称，如 "open"
+    u32 CallingConvention;// 目标平台调用约定（0:默认Cdecl, 1:Stdcall, 2:Fastcall）
+    u32 Reserved;         // 4字节补白，确保 8 字节硬件对齐
 };
 ```
 
@@ -410,13 +417,26 @@ struct MethodRvaEntry {
   * 汇编：`field.store_ref class User::BestFriend, %r2, %r6`
   * 布局：`[Opcode (0x37)] [Type Mask (0x60)] [Obj Reg %r2] [Src Reg %r6] [FieldToken (LEB128)]`
 
-#### 7.4.4 `call.witness` (伴随表泛型调用) - 变长 7~12 字节
+#### 7.4.4 `call.virtual` (虚方法多态调用) - 变长 6~9 字节
+
+* **汇编表达**：`%r4 = call.virtual i32 class User::GetId() %r2`
+* **二进制布局**：
+  `[Opcode (0x50)] [Dst Reg %r4] [Obj Reg %r2] [MethodToken (LEB128)]`
+
+#### 7.4.5 `call.witness` (伴随表泛型调用) - 变长 7~12 字节
 
 * **汇编表达**：`%r4 = call.witness i32 trait Trait::Method(%r1) %r2`
 * **二进制布局**：
   `[Opcode (0x52)] [Dst Reg %r4] [WitReg %r2] [ArgReg %r1] [ArgCount (u8)] [MethodToken (LEB128)]`
 
-#### 7.4.5 `match.union` (和类型模式匹配跳转) - 动态大小
+#### 7.4.6 `call.native` (外部原生 FFI 调用) - 变长 7~12 字节
+
+* **汇编表达**：`%r5 = call.native i32 @puts(%r1) unmanaged`
+* **二进制布局**：
+  `[Opcode (0x55)] [Dst Reg %r5] [FirstArgReg %r1] [ArgCount (u8)] [MethodToken (LEB128)]`
+  * *注：MethodToken 指向元数据中的 MethodDefEntry，进而重定向到 FfiImportDescriptor 获取模块和符号名称。*
+
+#### 7.4.7 `match.union` (和类型模式匹配跳转) - 动态大小
 
 * **汇编表达**：`match.union %r0 [ case 0 label %l1, case 1 label %l2 ]`
 * **二进制布局**：
