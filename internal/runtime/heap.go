@@ -12,7 +12,7 @@ var (
 
 type Heap interface {
 	// Allocate 分配指定大小（字节）的连续物理空间。
-	Allocate(size uint32) (oop.RawSlot, error)
+	Allocate(size uint64) (oop.RawSlot, error)
 
 	// Free 释放分配的Slot。
 	Free(slot oop.RawSlot)

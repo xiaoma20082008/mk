@@ -9,9 +9,6 @@ import (
 )
 
 // refCount 是 runtime.GarbageCollector 的一个最小实现（引用计数 + 阈值触发清扫）。
-// 在学习版中，真正的对象由 Go 运行时管理，这里主要负责：
-//  1. 通过堆做容量记账与 OOM 兜底；
-//  2. 在分配量越过阈值时，经协调器请求安全点并执行一次根扫描式的回收。
 type refCount struct {
 	heap        runtime.Heap
 	coordinator runtime.SafepointCoordinator
@@ -31,10 +28,10 @@ func (gc *refCount) Alloc(size uint32, creator func() oop.Obj) oop.Obj {
 		if allocated+uint64(size) > atomic.LoadUint64(&gc.gcThreshold) {
 			gc.Trigger()
 		}
-		slot, err := gc.heap.Allocate(size)
+		slot, err := gc.heap.Allocate(uint64(size))
 		if err == runtime.ErrOOM {
 			gc.Trigger()
-			slot, err = gc.heap.Allocate(size)
+			slot, err = gc.heap.Allocate(uint64(size))
 			if err != nil {
 				panic(err)
 			}
