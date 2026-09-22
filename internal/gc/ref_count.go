@@ -53,7 +53,7 @@ func (gc *refCount) Collect() {
 			_ = root
 		}
 	}
-	// 3. 执行清理：本学习版对象由 Go 管理，这里仅占位，便于后续接入真实回收。
+	// 3. 执行清理: TODO
 }
 
 func (gc *refCount) Trigger() {
