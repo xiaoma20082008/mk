@@ -57,7 +57,7 @@ func (t *InterpreterThread) Execute() {
 
 		frame := t.frames[t.index]
 		if frame.pc >= len(frame.bytecodes) {
-			// 帧自然结束（例如顶层脚本没有显式 return），直接退出该帧。
+			// 帧结束，直接退出该帧。
 			t.popFrame()
 			continue
 		}
@@ -87,7 +87,6 @@ func (t *InterpreterThread) Execute() {
 			t.push(oop.O_NULL)
 		case opcode.OpDup:
 			t.push(t.top())
-
 		case opcode.OpGetGlobal:
 			v := t.vm.Globals()[operands[0]]
 			if v == nil {

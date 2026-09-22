@@ -33,14 +33,12 @@ func (e *VMEngine) Name() string { return "stack-based vm" }
 
 func (e *VMEngine) Kind() Kind { return KindVM }
 
-// Exec 编译并执行一份 AST。
-// 编译错误与运行错误都直接以 error 返回；诊断信息由词法/语法阶段写入 reporter。
 func (e *VMEngine) Exec(p *ast.Program, r diagnostics.DiagnosticReporter) (oop.Obj, error) {
 	if p == nil {
 		return nil, nil
 	}
 
-	// 1. 编译：AST -> 字节码（复用既有符号表与常量池，跨行保持全局状态）。
+	// 1. 编译：AST -> 字节码
 	c := compiler.NewCompilerWithState(e.symbols, e.constants)
 	constants, bytecodes, err := c.Compile(p)
 	if err != nil {
@@ -48,7 +46,6 @@ func (e *VMEngine) Exec(p *ast.Program, r diagnostics.DiagnosticReporter) (oop.O
 	}
 	e.constants = constants
 
-	// 顶层脚本没有函数外壳，包装成一个无参入口闭包交给虚拟机执行。
 	mainFn := &sym.CompiledFunction{Instructions: bytecodes, NumLocals: 0, NumParameters: 0}
 	mainClosure := oop.NewClosure(mainFn, nil)
 
