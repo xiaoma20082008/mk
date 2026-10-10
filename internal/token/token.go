@@ -1,6 +1,7 @@
 package token
 
 type TokenType string
+
 type Token struct {
 	Type   TokenType
 	Lit    string
@@ -16,6 +17,7 @@ const (
 	IDENT  = "IDENT"
 	INT    = "INT"
 	STRING = "STRING"
+	DOLLAR = "$"
 
 	// 运算符
 	ASSIGN = "="
