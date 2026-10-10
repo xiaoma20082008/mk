@@ -47,6 +47,10 @@ func (f *Evaluator) VisitIdent(n *ast.IdentExpr, x any) (ast.Node, error) {
 		f.ret = val
 		return n, nil
 	}
+	if n.Value == "$" {
+		f.ret = runtime.NewRequestContext()
+		return n, nil
+	}
 	f.r.Report(diagnostics.ErrUndefinedIdentifier, n.Token.Line, n.Token.Column, n.Token.Lit)
 	panic(&runtimeError{"undefined vairable: " + n.Token.Lit})
 }
@@ -197,27 +201,16 @@ func (f *Evaluator) VisitFn(n *ast.FnExpr, x any) (ast.Node, error) {
 	fo := &oop.FuncObj{}
 	definitionEnv := f.env
 	fo.Call = func(args []oop.Obj) (oop.Obj, bool) {
-		// 1. 创建临时环境
 		localEnv := runtime.NewEnv(definitionEnv)
-		// 2. 绑定形参和实参
 		for i, param := range n.Args {
 			localEnv.Put(param.Value, args[i])
 		}
-		// 3. 备份当前环境
 		oldEnv := f.env
 		f.env = localEnv
-
-		// 4. 执行函数体
 		n.Body.Accept(f, x)
-
-		// 5. 记录执行结果和当前的返回信号
 		res := f.ret
 		fin := f.fin
-
-		// 6. 恢复
 		f.env = oldEnv
-
-		// 7. 返回结果给调用者
 		return res, fin
 	}
 	f.ret = fo
@@ -231,9 +224,6 @@ func (f *Evaluator) VisitAssign(n *ast.AssignExpr, x any) (ast.Node, error) {
 	case *ast.IdentExpr:
 		f.env.Put(left.Value, val)
 	case *ast.IndexExpr:
-		// list[index] = 10
-		// tuple[index] = 10
-		// map[index] = 10
 		left.Lhs.Accept(f, x)
 		targetObj := f.ret
 		left.Index.Accept(f, x)
@@ -251,7 +241,13 @@ func (f *Evaluator) VisitAssign(n *ast.AssignExpr, x any) (ast.Node, error) {
 			}
 		}
 	case *ast.DotExpr:
-		// x.name = 10
+		left.Lhs.Accept(f, x)
+		lhsObj := f.ret
+		field := oop.NewString(left.Rhs.Value)
+		switch obj := lhsObj.(type) {
+		case *oop.MapObj:
+			obj.Put(field, val)
+		}
 	}
 	return n, nil
 }
@@ -272,11 +268,22 @@ func (f *Evaluator) VisitIndex(n *ast.IndexExpr, x any) (ast.Node, error) {
 		if index, ok := iv.(*oop.IntObj); ok {
 			f.ret = obj.Get(int(index.Value))
 		}
+	default:
+		f.ret = oop.O_NULL
 	}
 	return n, nil
 }
 
 func (f *Evaluator) VisitDot(n *ast.DotExpr, x any) (ast.Node, error) {
+	n.Lhs.Accept(f, x)
+	lhsObj := f.ret
+	field := oop.NewString(n.Rhs.Value)
+	switch obj := lhsObj.(type) {
+	case *oop.MapObj:
+		f.ret = obj.Get(field)
+	default:
+		f.ret = oop.O_NULL
+	}
 	return n, nil
 }
 
