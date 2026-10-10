@@ -178,6 +178,12 @@ func (l *lexerImpl) readToken() token.Token {
 	case ':':
 		kind = token.COLON
 		lit = ":"
+	case '.':
+		kind = token.DOT
+		lit = "."
+	case '$':
+		kind = token.DOLLAR
+		lit = "$"
 	case 0:
 		kind = token.EOF
 		lit = ""
@@ -190,7 +196,6 @@ func (l *lexerImpl) readToken() token.Token {
 		} else {
 			lit = ""
 			kind = token.ERR
-			// 此时 l.ch 已经是 0 (EOI) 了
 			shouldAdvance = false
 		}
 	default:
@@ -222,33 +227,22 @@ func (l *lexerImpl) ensure(lookahead int) {
 }
 
 func (l *lexerImpl) readString() (string, bool) {
-	// 1.
 	p := l.pos
-
-	// 2.跳过开头的"
 	l.readChar()
-
 	for l.ch != '"' && l.ch != 0 {
 		if l.ch == '\\' {
 			l.readChar()
 		}
 		l.readChar()
 	}
-
-	// 3.
 	if l.ch == 0 {
 		line, col := l.LineMap(p)
 		l.r.Report(diagnostics.ErrUnterminatedString, line, col)
 		l.errPos = p
 		return "", false
 	}
-
-	// 4.
 	ret := l.input[p+1 : l.pos]
-
-	// 5. 跳过末尾的"
 	l.readChar()
-
 	return ret, true
 }
 
