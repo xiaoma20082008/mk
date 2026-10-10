@@ -1,6 +1,6 @@
 # Monkey Intermediate Language (MKIL) 技术规范
 
-本中间语言 `IR` 融合了高级托管运行时的核心抽象与现代化编译器后端的寄存器流及静态单赋值 SSA 设计，采用 **Block Arguments（块参数）** 代替 `Phi` 节点，以适应最新一代编译器基础设施的高效数据流分析与机器码生成需求。
+本中间语言 `IR` 融合了高级托管运行时的核心抽象与现代化编译器后端的寄存器流及静态单赋值 SSA 设计，采用 **Block Arguments（块参数）** 代替 `Phi` 节点，并针对 AOT 编译、硬件对齐和零拷贝加载进行了极致优化。
 
 ---
 
@@ -11,8 +11,8 @@ MKIL（Monkey中间语言）是一个**基于寄存器、强类型、静态单�
 ### 1.1 设计哲学
 
 * **静态单赋值（SSA）形式**：所有虚拟寄存器（以 `%` 命名）均具备唯一性，每个寄存器仅能被赋值一次。
-* **显式控制流图（CFG）与块参数**：代码由明确的基本块（Basic Blocks）组成。摒弃传统的 `phi` 节点，全面采用 **Block Arguments（块参数）** 形式传递控制流边界间的 SSA 状态。
-* **解耦元数据（Decoupled Metadata）**：指令执行流中仅包含类型与字段的���扑令牌（Tokens），物理字符串与反射元数据存放在独立的边带（Sidecar）文件（`.mkmeta`）中，从而大幅减少指令流体积，加速 I/O 与缓存命中率。
+* **显式控制流图（CFG）与块参数**：代码由明确的基本块（Basic Blocks）组成。摒弃传统的 `phi` 节点，全面采用 **Block Arguments（块参数）** 形式传递控制流状态。
+* **解耦元数据（Decoupled Metadata）**：指令执行流中仅包含类型与字段的拓扑令牌（Tokens），物理字符串与反射元数据存放在独立的边带（Sidecar）文件中，支持 AOT 编译期的按需深度裁剪（Trimming）。
 
 ---
 
@@ -36,7 +36,7 @@ MKIL 拥有分层的类型系统，兼顾了底层硬件映射的高效性与高
 * `union <UnionName>`：原生标签联合（Tagged Union / Sum Type），用于实现高效的模式匹配。
 * `trait <TraitName>`：特征/接口定义。用于约束泛型多态的动态或静态行为。
 * `ref <Type>`：托管跟踪指针。可指向栈或托管堆内部，GC 会在搬迁内存时自动更新。
-  * **静态生命周期域规则**：`ref` 类型属于栈帧敏感类型，严禁逃逸出当前函数域，不可作为 `newobj` 的字段。若作为块参数（Block Arguments）传递，目标块必须声明显式的参数列表接收；后续任何跨越当前函数栈帧边界的操作均触发编译期拒绝。
+  * **静态生命周期域规则**：`ref` 类型属于栈帧敏感类型，严禁逃逸出当前函数域，不可作为 `newobj` 的字段。若作为块参数（Block Arguments）传递，目标基本块的生命周期域必须小于或等于当前支配树（Dominator Tree）的父节点。
 
 ---
 
@@ -46,7 +46,7 @@ MKIL 拥有分层的类型系统，兼顾了底层硬件映射的高效性与高
 
 * `tracked`：托管堆内存。由高并发分代 GC 负责管理，JIT/AOT 编译器会为其自动生成精确的 **GC 栈映射表（GC Maps）**。
 * `untracked`：非托管内存。直接映射到原生物理堆（如 C 语言的 malloc/free 区域），GC 不参与追踪。
-* `scoped(lifetime_id)`：生命周期受限内存。由编译器在 IL 层面标记其作用域边界，允许将复杂的聚合类型在栈上分配，出域时由硬件指针直接回收，实现接近 C++ RAII 的确定性资源管理。
+* `scoped(lifetime_id)`：生命周期受限内存。由编译器在 IL 层面标记其作用域边界，允许将复杂的聚合类型在栈上分配，出域时由硬件指针直接回收，实现零成本的生命周期管理。
 
 ---
 
@@ -125,14 +125,14 @@ MKIL 拥有分层的类型系统，兼顾了底层硬件映射的高效性与高
 
 #### `call.witness`
 
-**泛型核心优化指令。** 针对满足特定 `trait` 约束的泛型调用，通过显式传入的**伴随表（Witness Table）**获取类型的元数据与函数指针。从而在 IL 层实现**���虚函数开销的泛型多态**——即使编译器无法完全特化，运行时也能通过伴随表以最少的间接寻址完成方法分发。
+**泛型核心优化指令。** 针对满足特定 `trait` 约束的泛型调用，通过显式传入的**伴随表（Witness Table）**获取类型的元数据与函数指针。从而在 IL 层即可避免值类型的膨胀，实现多态共享代码。
 
 * **语法**：`%dst = call.witness <ret_type> trait <TraitName>::<Method>(<args>) %witness_table, %obj`
 * **示例**：`%valid = call.witness i1 trait System.IEquatable::Equals(%r1) %wit_ptr, %r0`
 
 #### `call.native`
 
-**外部 FFI 接口指令。** 用于直接调用外部非托管 C 语言/Rust ABI 的物理动态库函数。带有显式 `unmanaged` 修饰符，强制 JIT/AOT 编译器在机器码生成阶段自动插入**栈转换序列（Stack Marshalling）**与 **GC 安全点（GC Safepoint）检查点**。
+**外部 FFI 接口指令。** 用于直接调用外部非托管 C 语言/Rust ABI 的物理动态库函数。带有显式 `unmanaged` 修饰符，强制 JIT/AOT 编译器在机器码生成阶段处理寄存器重排（SysV/AAPCS 适配）并自动前置插入 GC 线程隔离屏障，防止非托管执行流死锁托管世界的垃圾回收器。
 
 * **语法**：`%dst = call.native <ret_type> @MethodName(<args>) unmanaged`
 * **示例**：`%bytes_written = call.native i32 @write(i32 %fd, ptr %buf_ptr, i64 %len) unmanaged`
@@ -206,7 +206,7 @@ entry:
 
 ## 6. 元数据文件 (.mkmeta) 二进制布局规范
 
-本规范定义了 **MKIL元数据文件**（后缀通常为 `.mkmeta`）的底层二进制结构。该文件与执行码（`.mkil`）物理分离，所有表结构均基于固定大小的索引与令牌（Token），设计目标为支持零拷贝（Zero-Copy）内存映射与快速符号查询。
+本规范定义了 **MKIL元数据文件**（后缀通常为 `.mkmeta`）的底层二进制结构。该文件与执行码（`.mkil`）物理分离，所有表结构均基于固定大小的索引槽位，以支持 O(1) 时间复杂度的随机访问。
 
 **所有结构体采取 4/8 字节对齐，严格禁止出现非标宽度的内存字段以确保满足零复制（Zero-Copy）`mmap` 加载性能**。
 
@@ -287,7 +287,7 @@ struct FieldDefEntry {
 
 struct MethodDefEntry {
     u32 NameOffset;       // 方法名称在字符串池的偏移量
-    u32 RvaOrInterpret;   // 指向 .mkil 中该方法代码基本块的相对虚拟地址（RVA）。若该方法为 FFI 导入 (Flags 包含 METHOD_FLAG_FFI)，则此值重定向为指向 FfiImportDescriptor 的池内偏移量。
+    u32 RvaOrInterpret;   // 指向 .mkil 中该方法代码基本块的相对虚拟地址（RVA）。若该方法为 FFI 导入 (Flags 包含 METHOD_FLAG_FFI)，则此值重定向为指向 FfiImportDescriptor。
     u16 Flags;            // 方法属性（如 Static, Virtual, Abstract, 0x8000=METHOD_FLAG_FFI）
     u16 MaxStackRegs;     // 优化：该方法执行所需的最大虚拟寄存器窗口大小
     u32 ReturnTypeFlags;  // 返回值类型描述
@@ -323,7 +323,7 @@ struct WitnessMapEntry {
 
 ## 7. 执行码文件 (.mkil) 二进制编码与指令流规范
 
-本规范定义了 **MKIL 执行码文件（后缀为 `.mkil`）** 的底层二进制编码标准。作为基于寄存器的静态单赋值（SSA）指令表示，该文件格式旨在通过变长指令编码与块参数传播，实现最小化指令体积的同时保持强类型安全。
+本规范定义了 **MKIL 执行码文件（后缀为 `.mkil`）** 的底层二进制编码标准。作为基于寄存器的静态单赋值（SSA）指令表示，该文件格式旨在通过变长指令编码消除寄存器开销，并在无需解压的情况下实现 O(N) 线性流式单遍（Single-pass）验证与极速编译。
 
 ### 7.1 全局文件结构
 
@@ -447,7 +447,7 @@ struct MethodRvaEntry {
 
 ## 8. 原生异常处理机制 (Exception Handling) 二进制编码规范
 
-MKIL 采用**静态表驱动（Table-driven）与显式基本块（Basic Block）控制流关联**的设计。这种设计保证了高效率的 AOT 展开（零成本成功路径），并理顺了复杂的异常控制流图，避免了传统嵌套 try-catch 结构的复杂度。
+MKIL 采用**静态表驱动（Table-driven）与显式基本块（Basic Block）控制流关联**的设计。这种设计保证了高效率的 AOT 展开（零成本成功路径），并理顺了异常接管流与 Block Arguments 类型机制之间的底层冲突。
 
 ### 8.1 异常处理描述表 (EH Exception Table)
 
@@ -537,18 +537,18 @@ finally_entry:
 
 ## 9. 编译器验证与通过性约束指南 (Validator Compliance)
 
-为确保 MKIL 执行码在进入 AOT/JIT 阶段前的强类型安全和内存完整性，验证器（Validator）必须对指令流进行单遍静态拓扑扫描（Single-pass Verification），系统性地检���如下一致性违反。
+为确保 MKIL 执行码在进入 AOT/JIT 阶段前的强类型安全和内存完整性，验证器（Validator）必须对指令流进行单遍静态拓扑扫描（Single-pass Verification），并强制通过以下几项核心审查规则：
 
 ### 9.1 SSA 唯一性与支配性检测 (Dominance Compliance)
 
 * **严格单赋值**：同一个虚拟寄存器索引在单个方法定义中，有且仅能作为一条指令的 `Dst Reg` 出现。
-* **支配树规则**：除基本块参数（Block Arguments）在外，任何指令使用的 `Src Reg`，其定义所在的块（Defining Block）必须在控制流图（CFG）的支配树上严格支配该指令所在的块。
+* **支配树规则**：除基本块参数（Block Arguments）在外，任何指令使用的 `Src Reg`，其定义所在的块（Defining Block）必须在控制流图（CFG）的支配树上严格支配（Dominate）当前使用块。
 
 ### 9.2 块参数类型拓扑匹配 (Block Argument Unification)
 
-* 当执行跳转指令 `br` 或 `brcond` 指向包含参数的基本块时，跳转负载中携带的操作数寄存器数量及类型，必须与目标块首部声明的参数列表达成严格一一对应。
+* 当执行跳转指令 `br` 或 `brcond` 指向包含参数的基本块时，跳转负载中携带的操作数寄存器数量及类型，必须与目标块首部声明的参数列表达成严格的一一映射（Bit-perfect Matching）。
 
 ### 9.3 托管指针托管越界防逃逸规则 (Anti-Escape Analysis)
 
 * 所有具备 `ref <Type>` 属性的托管跟踪指针（ByRef 指针），禁止向任何生存期域（Lifetime Scope）宽于当前方法栈帧的聚合体逃逸。
-* **非法动作定义**：禁止将 `ref` 数据作为 `field.store` 到任何 `class` 的堆字段中；禁止将 `ref` 指针作为当前方法的返回值（`ret`）传出，除非附加了特殊的生命周期标注。
+* **非法动作定义**：禁止将 `ref` 数据作为 `field.store` 到任何 `class` 的堆字段中；禁止将 `ref` 指针作为当前方法的返回值（`ret`）传出，除非附加了明确与形参绑定的生存期令牌修饰符。
