@@ -44,6 +44,9 @@ const (
 
 	DOT = "."
 
+	// 请求上下文
+	DOLLAR = "$"
+
 	LPAREN   = "("
 	RPAREN   = ")"
 	LBRACE   = "{"
@@ -126,9 +129,6 @@ func GetPrecedence(k TokenType) int {
 		return p
 	}
 	return 0
-}
-
-func LookupOpKind(ident string) {
 }
 
 func LookupIdentKind(ident string) TokenType {

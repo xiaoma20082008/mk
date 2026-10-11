@@ -74,6 +74,8 @@ func NewParser(l lexer.Lexer, r diagnostics.DiagnosticReporter) *parserImpl {
 	p.prefixFns[token.FUNCTION] = p.parsePrefix0
 	p.prefixFns[token.NEW] = p.parsePrefix0
 
+	p.prefixFns[token.DOLLAR] = p.parsePrefix0
+
 	// 1. =
 	p.infixFns[token.ASSIGN] = p.parseBinary
 	// 2. + - * / % > >= == < <= != << >>
@@ -229,6 +231,8 @@ func (p *parserImpl) parsePrefix0() ast.Expression {
 		expr = p.parseFunction()
 	case token.NEW:
 		expr = p.parseNew()
+	case token.DOLLAR:
+		// TODO
 	default:
 		line, col := p.l.LineMap(p.token.Offset)
 		p.r.Report(diagnostics.ErrUnknownPrefixKind, line, col, p.token.Lit)

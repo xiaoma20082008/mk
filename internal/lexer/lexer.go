@@ -178,6 +178,9 @@ func (l *lexerImpl) readToken() token.Token {
 	case ':':
 		kind = token.COLON
 		lit = ":"
+	case '$':
+		kind = token.DOLLAR
+		lit = "$"
 	case 0:
 		kind = token.EOF
 		lit = ""
