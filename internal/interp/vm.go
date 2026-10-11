@@ -10,22 +10,15 @@ import (
 	"mk/internal/vm"
 )
 
-// VMEngine 栈式字节码虚拟机引擎。
-// 链路是 compile（AST -> bytecode）再交给 vm 逐条解释执行。
-//
-// 有三份状态需要跨行复用：
-//   - symbols：符号表，保证上一行定义的名字下一行还能解析到同一个槽位
-//   - constants：常量池，保证函数体里的 OpConstant 下标不会跨行错位
-//   - globals：全局区，保存顶层变量与函数的运行期值
 type VMEngine struct {
-	symbols   *sym.SymbolTable
-	constants []oop.Obj
-	globals   []oop.Obj
+	symbols   sym.Scope // 符号表
+	constants []oop.Obj // 常量池
+	globals   []oop.Obj // 全局区
 }
 
 func NewVMEngine() *VMEngine {
 	return &VMEngine{
-		symbols: sym.NewSymbolTable(),
+		symbols: sym.NewScope(nil),
 	}
 }
 

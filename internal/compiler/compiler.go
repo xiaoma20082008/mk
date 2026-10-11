@@ -31,32 +31,26 @@ type compiler struct {
 	scopes      []compilationScope
 	scopeIndex  int
 	constants   []oop.Obj
-	symbolTable *sym.SymbolTable
-}
-
-func NewCompiler() Compiler {
-	return &compiler{
-		scopes:      []compilationScope{{instructions: opcode.Instructions{}}},
-		scopeIndex:  0,
-		constants:   []oop.Obj{},
-		symbolTable: sym.NewSymbolTable(),
-	}
+	symbolTable sym.Scope
 }
 
 // NewCompilerWithState 复用已有的符号表与常量池（REPL 场景下跨行保持全局状态）
-func NewCompilerWithState(s *sym.SymbolTable, constants []oop.Obj) Compiler {
-	c := NewCompiler().(*compiler)
-	if s != nil {
-		c.symbolTable = s
+func NewCompilerWithState(parent sym.Scope, constants []oop.Obj) Compiler {
+	c := &compiler{
+		scopes:      []compilationScope{{instructions: opcode.Instructions{}}},
+		scopeIndex:  0,
+		constants:   []oop.Obj{},
+		symbolTable: nil,
+	}
+	if parent != nil {
+		c.symbolTable = parent
+	} else {
+		c.symbolTable = sym.NewScope(nil)
 	}
 	if constants != nil {
 		c.constants = constants
 	}
 	return c
-}
-
-func (c *compiler) SymbolTable() *sym.SymbolTable {
-	return c.symbolTable
 }
 
 func (c *compiler) Compile(node ast.Node) ([]oop.Obj, opcode.Instructions, error) {
@@ -138,41 +132,26 @@ func (c *compiler) currentInstructions() opcode.Instructions {
 func (c *compiler) enterScope() {
 	c.scopes = append(c.scopes, compilationScope{instructions: opcode.Instructions{}})
 	c.scopeIndex++
-	c.symbolTable = sym.NewEnclosedSymbolTable(c.symbolTable)
+	c.symbolTable = sym.NewScope(c.symbolTable)
 }
 
 func (c *compiler) leaveScope() opcode.Instructions {
 	ins := c.currentInstructions()
 	c.scopes = c.scopes[:len(c.scopes)-1]
 	c.scopeIndex--
-	c.symbolTable = c.symbolTable.Outer()
+	c.symbolTable = c.symbolTable.Parent()
 	return ins
 }
 
-func (c *compiler) loadSymbol(s sym.Symbol) {
-	switch s.Scope {
-	case sym.GlobalScope:
-		c.emit(opcode.OpGetGlobal, s.Index)
-	case sym.LocalScope:
-		c.emit(opcode.OpGetLocal, s.Index)
-	case sym.BuiltinScope:
-		c.emit(opcode.OpGetBuiltin, s.Index)
-	case sym.FreeScope:
-		c.emit(opcode.OpGetFree, s.Index)
-	}
+func (c *compiler) loadSymbol(s *sym.Symbol) {
 }
 
-func (c *compiler) storeSymbol(s sym.Symbol) {
-	switch s.Scope {
-	case sym.GlobalScope:
-		c.emit(opcode.OpSetGlobal, s.Index)
-	case sym.LocalScope:
-		c.emit(opcode.OpSetLocal, s.Index)
-	case sym.FreeScope:
-		c.emit(opcode.OpSetFree, s.Index)
-	case sym.BuiltinScope:
-		// 内建函数不可被重新赋值，这里退化成「仅弹出赋值结果」
-		c.emit(opcode.OpPop)
+func (c *compiler) storeSymbol(s *sym.Symbol) {
+}
+
+func (c *compiler) resolveLet(let *ast.LetStmt) {
+	if _, ok := c.symbolTable.Resolve(let.Name.Value); !ok {
+		c.symbolTable.Define(let.Name.Value, sym.KindVariable, oop.OBJ_FUNC)
 	}
 }
 
@@ -192,9 +171,7 @@ func (c *compiler) VisitProgram(n *ast.Program, x any) (ast.Node, error) {
 	// 预声明顶层 let，使全局名字可以被前向引用（与树遍历解释器的行为保持一致）
 	for _, stmt := range n.Statements {
 		if let, ok := stmt.(*ast.LetStmt); ok {
-			if _, ok := c.symbolTable.Resolve(let.Name.Value); !ok {
-				c.symbolTable.Define(let.Name.Value)
-			}
+			c.resolveLet(let)
 		}
 	}
 	for _, stmt := range n.Statements {
@@ -218,7 +195,11 @@ func (c *compiler) VisitLet(n *ast.LetStmt, x any) (ast.Node, error) {
 	if err := c.compile(n.Value); err != nil {
 		return nil, err
 	}
-	c.storeSymbol(c.symbolTable.Define(n.Name.Value))
+	s, err := c.symbolTable.Define(n.Name.Value, sym.KindVariable, oop.OBJ_FUNC)
+	if err != nil {
+		return nil, err
+	}
+	c.storeSymbol(s)
 	return n, nil
 }
 
@@ -419,14 +400,13 @@ func (c *compiler) VisitAssign(n *ast.AssignExpr, x any) (ast.Node, error) {
 		if err := c.compile(n.Rhs); err != nil {
 			return nil, err
 		}
-		sym, ok := c.symbolTable.Resolve(lhs.Value)
+		symbol, ok := c.symbolTable.Resolve(lhs.Value)
 		if !ok {
-			// 变量未声明：就地声明（沿用树遍历解释器的宽松语义）
-			sym = c.symbolTable.Define(lhs.Value)
+			s, _ := c.symbolTable.Define(lhs.Value, sym.KindVariable, "")
+			symbol = s
 		}
-		// 赋值表达式本身也是值：先复制一份，写入变量后再把值留在栈顶
 		c.emit(opcode.OpDup)
-		c.storeSymbol(sym)
+		c.storeSymbol(symbol)
 	case *ast.IndexExpr:
 		// a[i] = v
 		if err := c.compile(lhs.Lhs); err != nil {
@@ -490,53 +470,15 @@ func (c *compiler) VisitMap(n *ast.MapLitExpr, x any) (ast.Node, error) {
 	return n, nil
 }
 
-// VisitFn 编译函数字面量：
-// 1. 新开作用域与符号表，编译函数体
-// 2. 保证函数体一定以返回指令结尾（隐式返回最后一个表达式的值）
-// 3. 把捕获到的自由变量逐个压栈，再发射 OpClosure
 func (c *compiler) VisitFn(n *ast.FnExpr, x any) (ast.Node, error) {
-	c.enterScope()
-
-	for _, arg := range n.Args {
-		c.symbolTable.Define(arg.Value)
-	}
-
-	if err := c.compile(n.Body); err != nil {
-		c.leaveScope()
-		return nil, err
-	}
-
-	// 函数体末尾是表达式语句时，把它的值作为返回值（隐式 return）
-	if c.lastInstructionIs(opcode.OpPop) {
-		c.replaceLastPopWithReturn()
-	}
-	if !c.lastInstructionIs(opcode.OpReturnValue) {
-		c.emit(opcode.OpReturn)
-	}
-
-	freeSymbols := c.symbolTable.FreeSymbols
-	numLocals := c.symbolTable.NumDefinitions()
-	instructions := c.leaveScope()
-
-	// 回到外层作用域后，自由变量按 FreeSymbols 的顺序压栈，供 OpClosure 捕获
-	for _, sym := range freeSymbols {
-		c.loadSymbol(sym)
-	}
-
-	compiledFn := &sym.CompiledFunction{
-		Instructions:  instructions,
-		NumLocals:     numLocals,
-		NumParameters: len(n.Args),
-	}
-	c.emit(opcode.OpClosure, c.addConstant(compiledFn), len(freeSymbols))
-	return n, nil
+	return nil, fmt.Errorf("fn is not supported yet")
 }
 
 func (c *compiler) VisitDot(n *ast.DotExpr, x any) (ast.Node, error) {
-	return nil, fmt.Errorf("member access `.` is not supported by the stack-based vm yet")
+	return nil, fmt.Errorf("member access `.` is not supported yet")
 }
 
 // Class
 func (c *compiler) VisitClass(n *ast.ClassStmt, x any) (ast.Node, error) {
-	return nil, fmt.Errorf("class declaration is not supported by the stack-based vm yet")
+	return nil, fmt.Errorf("class declaration is not supported yet")
 }
