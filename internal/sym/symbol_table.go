@@ -2,21 +2,22 @@ package sym
 
 import "mk/internal/oop"
 
-type SymbolScope string
+type SymbolKind int
 
 const (
-	GlobalScope  SymbolScope = "GLOBAL"
-	LocalScope   SymbolScope = "LOCAL"
-	BuiltinScope SymbolScope = "BUILTIN"
-	FreeScope    SymbolScope = "FREE"
+	KindVariable SymbolKind = iota // 变量
+	KindConstant                   // 常量
+	KindFunction                   // 函数
+	KindParam                      // 函数参数
+	KindBuiltin                    // 内置全局函数/类型
 )
 
-// Symbol 编译期解析出来的名字绑定
 type Symbol struct {
 	Name  string
-	Type  int // TODO 符号类型
-	Scope SymbolScope
+	Type  oop.ObjType
+	Kind  SymbolKind
 	Index int
+	Depth int
 }
 
 type Scope interface {
@@ -25,7 +26,6 @@ type Scope interface {
 	Resolve(name string) (*Symbol, bool)
 	Parent() Scope
 }
-
 
 // SymbolTable 编译期的符号表。函数作用域会形成一条 outer 链：
 // 在内层表里解析到外层函数的局部变量时，该变量会被登记为「自由变量」（FreeScope）。
