@@ -22,8 +22,8 @@ type Symbol struct {
 type Scope interface {
 	Name() string
 	Define(sym *Symbol)
-	Resolve(name string) *Symbol
-	Outer() Scope
+	Resolve(name string) (*Symbol, bool)
+	Parent() Scope
 }
 
 
