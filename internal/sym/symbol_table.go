@@ -14,9 +14,18 @@ const (
 // Symbol 编译期解析出来的名字绑定
 type Symbol struct {
 	Name  string
+	Type  int // TODO 符号类型
 	Scope SymbolScope
 	Index int
 }
+
+type Scope interface {
+	Name() string
+	Define(sym *Symbol)
+	Resolve(name string) *Symbol
+	Outer() Scope
+}
+
 
 // SymbolTable 编译期的符号表。函数作用域会形成一条 outer 链：
 // 在内层表里解析到外层函数的局部变量时，该变量会被登记为「自由变量」（FreeScope）。
