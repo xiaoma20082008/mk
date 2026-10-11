@@ -153,6 +153,10 @@ func (f *Evaluator) VisitBinary(n *ast.BinaryExpr, x any) (ast.Node, error) {
 	return n, nil
 }
 
+func (f *Evaluator) VisitCtx(n *ast.CtxExpr, x any) (ast.Node, error) {
+	return n, nil
+}
+
 func (f *Evaluator) VisitCall(n *ast.CallExpr, x any) (ast.Node, error) {
 	n.Fn.Accept(f, x)
 	fn, ok := f.ret.(*oop.FuncObj)

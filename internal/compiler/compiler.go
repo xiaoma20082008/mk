@@ -303,6 +303,10 @@ func (c *compiler) VisitParen(n *ast.ParenExpr, x any) (ast.Node, error) {
 	return n, nil
 }
 
+func (c *compiler) VisitCtx(n *ast.CtxExpr, x any) (ast.Node, error) {
+	return n, nil
+}
+
 func (c *compiler) VisitUnary(n *ast.UnaryExpr, x any) (ast.Node, error) {
 	if err := c.compile(n.Right); err != nil {
 		return nil, err

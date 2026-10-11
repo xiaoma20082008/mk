@@ -232,13 +232,19 @@ func (p *parserImpl) parsePrefix0() ast.Expression {
 	case token.NEW:
 		expr = p.parseNew()
 	case token.DOLLAR:
-		// TODO
+		expr = p.parseCtx()
 	default:
 		line, col := p.l.LineMap(p.token.Offset)
 		p.r.Report(diagnostics.ErrUnknownPrefixKind, line, col, p.token.Lit)
 		panic(&parsingError{"unknown token: " + p.token.Lit})
 	}
 	return expr
+}
+
+func (p *parserImpl) parseCtx() ast.Expression {
+	tok := p.token
+	p.nextToken()
+	return &ast.CtxExpr{Token: tok, Value: "$"}
 }
 
 func (p *parserImpl) parseUnary() ast.Expression {

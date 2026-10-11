@@ -52,6 +52,10 @@ func (f *PrettyFormatter) VisitDot(n *ast.DotExpr, x any) (ast.Node, error) {
 	return n, nil
 }
 
+func (f *PrettyFormatter) VisitCtx(n *ast.CtxExpr, x any) (ast.Node, error) {
+	return n, nil
+}
+
 func (f *PrettyFormatter) VisitString(n *ast.StringLitExpr, x any) (ast.Node, error) {
 	f.sb.WriteString("\"")
 	f.sb.WriteString(n.Value)

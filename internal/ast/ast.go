@@ -25,6 +25,7 @@ type Visitor interface {
 	VisitParen(*ParenExpr, any) (Node, error)
 	VisitFn(*FnExpr, any) (Node, error)
 	VisitAssign(*AssignExpr, any) (Node, error)
+	VisitCtx(*CtxExpr, any) (Node, error)
 
 	// Stmt
 	VisitIf(*IfStmt, any) (Node, error)
@@ -69,6 +70,11 @@ type DotExpr struct {
 	Token token.Token
 	Lhs   Expression
 	Rhs   *IdentExpr
+}
+
+type CtxExpr struct {
+	Token token.Token
+	Value string
 }
 
 type IndexExpr struct {
@@ -186,6 +192,17 @@ func (e *DotExpr) Text() string {
 
 func (e *DotExpr) Accept(v Visitor, x any) (Node, error) {
 	return v.VisitDot(e, x)
+}
+
+func (e *CtxExpr) exprNode() {
+}
+
+func (e *CtxExpr) Text() string {
+	return e.Token.Lit
+}
+
+func (e *CtxExpr) Accept(v Visitor, x any) (Node, error) {
+	return v.VisitCtx(e, x)
 }
 
 func (e *ListLitExpr) exprNode() {
