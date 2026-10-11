@@ -154,6 +154,8 @@ func (f *Evaluator) VisitBinary(n *ast.BinaryExpr, x any) (ast.Node, error) {
 }
 
 func (f *Evaluator) VisitCtx(n *ast.CtxExpr, x any) (ast.Node, error) {
+	// 构建请求上下文
+	f.ret = oop.NewMap()
 	return n, nil
 }
 
@@ -255,7 +257,13 @@ func (f *Evaluator) VisitAssign(n *ast.AssignExpr, x any) (ast.Node, error) {
 			}
 		}
 	case *ast.DotExpr:
-		// x.name = 10
+		left.Lhs.Accept(f, x)
+		lhsObj := f.ret
+		field := oop.NewString(left.Rhs.Value)
+		switch obj := lhsObj.(type) {
+		case *oop.MapObj:
+			obj.Put(field, val)
+		}
 	}
 	return n, nil
 }
@@ -281,6 +289,15 @@ func (f *Evaluator) VisitIndex(n *ast.IndexExpr, x any) (ast.Node, error) {
 }
 
 func (f *Evaluator) VisitDot(n *ast.DotExpr, x any) (ast.Node, error) {
+	n.Lhs.Accept(f, x)
+	lhs := f.ret
+	field := oop.NewString(n.Rhs.Value)
+	switch obj := lhs.(type) {
+	case *oop.MapObj:
+		f.ret = obj.Get(field)
+	default:
+		f.ret = oop.O_NULL
+	}
 	return n, nil
 }
 
@@ -401,9 +418,6 @@ func (e *Evaluator) Name() string { return "ast tree-walking interpreter" }
 // Kind 引擎种类
 func (e *Evaluator) Kind() Kind { return KindTree }
 
-// Exec 直接在 AST 上递归求值，不产生任何中间表示。
-// 结果可能为 nil（比如整段程序只有 let 语句），调用方需自行判空。
-// 诊断信息写入传入的 reporter，与 repl 每行的 reporter 保持一致。
 func (e *Evaluator) Exec(p *ast.Program, r diagnostics.DiagnosticReporter) (oop.Obj, error) {
 	if p == nil {
 		return nil, nil

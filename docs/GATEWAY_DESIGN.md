@@ -63,7 +63,7 @@ $ = {
   // 请求头
   header: {
     "content-type": "application/json",
-    authorization: "Bearer abc.def.ghi",
+    "authorization": "Bearer abc.def.ghi",
     "x-trace-id": "trace-001"
   },
   
@@ -521,21 +521,25 @@ return {
 ## 15. 实现计划
 
 ### 第一阶段：最小支持
+
 - 将 `$` 添加为运行时值
 - 支持 `$.header`、`$.cookie`、`$.query`、`$.body`
 - 支持属性和索引访问
 - 添加基础 `get` 辅助函数
 
 ### 第二阶段：网关内置函数
+
 - 添加 `jwt_parse`、`http_get`、`http_post`、`match`、`log`、`error`
 - 添加 `has`、`len`、`keys`、`values`
 
 ### 第三阶段：策略引擎
+
 - 添加请求修改语义
 - 添加脚本返回契约
 - 添加默认超时和沙箱限制
 
 ### 第四阶段：优化
+
 - 缓存编译脚本
 - 添加 JIT 或字节码优化
 - 添加指标和追踪
