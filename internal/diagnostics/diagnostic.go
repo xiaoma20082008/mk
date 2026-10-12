@@ -102,36 +102,40 @@ var (
 	}
 
 	// ==========================================
-	// 3. 运行时错误 (Runtime Errors: E3000 - E3999)
+	// 3. 语义错误 (Semantic Errors: E3000 - E3999)
 	// ==========================================
 
-	// E3001: 数学除以零错误
+	// ==========================================
+	// 4. 运行时错误 (Runtime Errors: E4000 - E4999)
+	// ==========================================
+
+	// E4001: 数学除以零错误
 	ErrDivByZero = DiagnosticDescriptor{
-		Code:     "E3001",
+		Code:     "E4001",
 		Kind:     KindRuntime,
 		Template: "runtime error: division by zero",
 	}
-	// E3002: 使用了没有定义的变量
+	// E4002: 使用了没有定义的变量
 	ErrUndefinedIdentifier = DiagnosticDescriptor{
-		Code:     "E3002",
+		Code:     "E4002",
 		Kind:     KindRuntime,
 		Template: "runtime error: undefined variable '%s'",
 	}
-	// E3003: 对非函数对象尝试进行调用，比如 a = 5; a();
+	// E4003: 对非函数对象尝试进行调用，比如 a = 5; a();
 	ErrNotAFunction = DiagnosticDescriptor{
-		Code:     "E3003",
+		Code:     "E4003",
 		Kind:     KindRuntime,
 		Template: "runtime error: '%s' is not a function",
 	}
-	// E3004: 函数调用时，传入的实参个数和定义的形参个数不匹配
+	// E4004: 函数调用时，传入的实参个数和定义的形参个数不匹配
 	ErrWrongArgCount = DiagnosticDescriptor{
-		Code:     "E3004",
+		Code:     "E4004",
 		Kind:     KindRuntime,
 		Template: "runtime error: wrong number of arguments; expected %d, got %d",
 	}
-	// E3005: 数组越界，比如长度为 3 的数组访问了 index = 5
+	// E4005: 数组越界，比如长度为 3 的数组访问了 index = 5
 	ErrIndexOutOfBounds = DiagnosticDescriptor{
-		Code:     "E3005",
+		Code:     "E4005",
 		Kind:     KindRuntime,
 		Template: "runtime error: index out of bounds: %d",
 	}

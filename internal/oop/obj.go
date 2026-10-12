@@ -6,24 +6,23 @@ import (
 	"strings"
 )
 
-type ObjType string
+type ObjType int
 
 const (
-	OBJ_INT    = "INT"
-	OBJ_BOOL   = "BOOL"
-	OBJ_NULL   = "NULL"
-	OBJ_STRING = "STRING"
-	OBJ_MAP    = "MAP"
-	OBJ_LIST   = "LIST"
-	OBJ_TUPLE  = "TUPLE"
-	OBJ_FUNC   = "FUNC"
-	OBJ_CLASS  = "CLASS"
-	OBJ_TSRUCT = "STRUCT"
+	OBJ_INT ObjType = iota
+	OBJ_BOOL
+	OBJ_NULL
+	OBJ_STRING
+	OBJ_MAP
+	OBJ_LIST
+	OBJ_TUPLE
+	OBJ_FUNC
+	OBJ_CLASS
+	OBJ_TSRUCT
 
-	// 基于栈的虚拟机（internal/runtime）使用的对象类型
-	OBJ_COMPILED_FUNC = "COMPILED_FUNC"
-	OBJ_CLOSURE       = "CLOSURE"
-	OBJ_BUILTIN       = "BUILTIN"
+	OBJ_COMPILED_FUNC
+	OBJ_CLOSURE
+	OBJ_BUILTIN
 )
 
 var (

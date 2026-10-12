@@ -22,7 +22,6 @@ type Symbol struct {
 	Index int
 	Depth int
 
-	// TODO: 将来用于报错提示
 	Line   int
 	Column int
 }

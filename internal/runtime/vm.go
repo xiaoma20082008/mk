@@ -1,22 +1,66 @@
 package runtime
 
-import "mk/internal/oop"
+import (
+	"context"
+	"mk/internal/classfile"
+	"mk/internal/oop"
+)
 
-type VM interface {
-	SafepointCoordinator
-	RootScanner
+const (
+	StackSize   = 2048
+	GlobalsSize = 65536
+	MaxFrames   = 1024
+)
 
-	GetCollector() GarbageCollector
-	SetCollector(GarbageCollector)
+type VM struct {
+	heap *Heap
 
-	Start()
-	StopTheWorld()
+	gc  *GarbageCollector
+	stw bool
 
-	// 线程/协程生命周期管理
-	RegisterThread(t Thread)
-	UnregisterThread(t Thread)
-	GetAllThreads() []Thread
+	threads map[int32]*InterpreterThread
 
-	SetGlobal(name string, val oop.Obj)
-	GetGlobal(name string) (oop.Obj, bool)
+	constants []oop.Obj
+	globals   []oop.Obj
+	entry     *oop.Closure
+
+	result oop.Obj
+	err    error
+}
+
+func (vm *VM) Load(cf *classfile.ClassFile) {
+}
+
+func (vm *VM) Result() (oop.Obj, error) {
+	return vm.result, vm.err
+}
+
+func (vm *VM) RequestSafepoint() {}
+
+func (vm *VM) ReleaseSafepoint() {}
+
+func (vm *VM) Start() {}
+
+func (vm *VM) StopTheWorld() {}
+
+func (vm *VM) ScanThreadRoots(gc GarbageCollector) {
+}
+
+func (vm *VM) StartMainThread(ctx context.Context, method *oop.MethodDef) {
+	thread := NewInterpreterThread(vm)
+	vm.threads[thread.id] = thread
+	thread.Execute(ctx, method)
+}
+
+var MVM *VM
+
+func New() *VM {
+	MVM = &VM{
+		heap: NewHeap(0),
+
+		gc: nil,
+
+		threads: map[int32]*InterpreterThread{},
+	}
+	return MVM
 }

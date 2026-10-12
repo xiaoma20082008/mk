@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"mk/internal/ast"
+	"mk/internal/classfile"
 	"mk/internal/oop"
 	"mk/internal/opcode"
 	"mk/internal/sym"
@@ -11,7 +12,7 @@ import (
 )
 
 type Compiler interface {
-	Compile(node ast.Node) (constants []oop.Obj, bytecodes opcode.Instructions, err error)
+	Compile(node ast.Node) *classfile.ClassFile
 }
 
 // emittedInstruction 记录最近两条指令，用于回填跳转偏移、以及把函数体末尾的 OpPop 改写成 OpReturnValue
@@ -34,7 +35,15 @@ type compiler struct {
 	symbolTable sym.Scope
 }
 
-// NewCompilerWithState 复用已有的符号表与常量池（REPL 场景下跨行保持全局状态）
+func NewCompiler() Compiler {
+	return &compiler{
+		scopes:      []compilationScope{{instructions: opcode.Instructions{}}},
+		scopeIndex:  0,
+		constants:   []oop.Obj{},
+		symbolTable: nil,
+	}
+}
+
 func NewCompilerWithState(parent sym.Scope, constants []oop.Obj) Compiler {
 	c := &compiler{
 		scopes:      []compilationScope{{instructions: opcode.Instructions{}}},
@@ -53,15 +62,15 @@ func NewCompilerWithState(parent sym.Scope, constants []oop.Obj) Compiler {
 	return c
 }
 
-func (c *compiler) Compile(node ast.Node) ([]oop.Obj, opcode.Instructions, error) {
+func (c *compiler) Compile(node ast.Node) *classfile.ClassFile {
 	if node == nil {
-		return nil, nil, nil
+		return nil
 	}
 	_, err := node.Accept(c, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil
 	}
-	return c.constants, c.currentInstructions(), nil
+	return nil
 }
 
 // ------------------------------------------------------------------------------------------
@@ -406,7 +415,7 @@ func (c *compiler) VisitAssign(n *ast.AssignExpr, x any) (ast.Node, error) {
 		}
 		symbol, ok := c.symbolTable.Resolve(lhs.Value)
 		if !ok {
-			s, _ := c.symbolTable.Define(lhs.Value, sym.KindVariable, "")
+			s, _ := c.symbolTable.Define(lhs.Value, sym.KindVariable, 0)
 			symbol = s
 		}
 		c.emit(opcode.OpDup)

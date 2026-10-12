@@ -1,30 +1,128 @@
 package runtime
 
 import (
-	"errors"
-	"mk/internal/oop"
+	"log"
+	"syscall"
+	"unsafe"
 )
 
-var (
-	ErrOOM           = errors.New("out of memory: heap exhausted")
-	ErrInvalidObject = errors.New("invalid object pointer or address")
+type Space struct {
+	base uint64
+	top  uint64
+	end  uint64
+
+	size     uint64
+	capacity uint64
+}
+
+type Heap struct {
+	start uintptr
+	total uint64
+
+	metaspace *Space
+	eden      *Space
+	survivor0 *Space
+	survivor1 *Space
+	old       *Space
+}
+
+const (
+	HeapMinSize uint64 = 64 * 1024 * 1024
+	HeapMaxSize uint64 = 1024 * 1024 * 1024
+	PageSize    uint64 = 4096
 )
 
-type Heap interface {
-	// Allocate 分配指定大小（字节）的连续物理空间。
-	Allocate(size uint64) (oop.RawSlot, error)
+func (s *Space) Allocate(size uint32) uintptr {
+	size = uint32((size + 7) &^ 7)
+	if s.top+uint64(size) > s.end {
+		return 0
+	}
+	addr := s.top
+	s.top += uint64(size)
+	return uintptr(addr)
+}
 
-	// Free 释放分配的Slot。
-	Free(slot oop.RawSlot)
+func (s *Space) Contains(obj uintptr) bool {
+	return uintptr(s.base) <= obj && obj < uintptr(s.end)
+}
 
-	TotalBytes() uint64     // 堆的总物理限制容量（单位：字节）
-	AllocatedBytes() uint64 // 堆当前已分配并被占用的容量（单位：字节）
-	AvailableBytes() uint64 // 堆当前还剩余的可用容量（单位：字节）
-	ResetCounters()         // 重置统计计数器（通常在一次完全 GC 结束后调用）
+func (s *Space) Clear() {
+	s.top = s.base
+}
 
-	// Contains 判定 Slot 是否属于当前堆的管辖范围。
-	Contains(slot oop.RawSlot) bool
+func (h *Heap) AllocateObj(size uint32) uintptr {
+	size = size + uint32(HEADER_SIZE)
+	addr := h.eden.Allocate(size)
+	if addr == 0 {
+		return 0
+	}
+	header := (*ObjectHeader)(unsafe.Pointer(addr))
+	header.MarkWord = 0
+	header.TypePtr = 0
+	return addr
+}
 
-	// VisitObjects 遍历堆中的所有对象。
-	VisitObjects(visitor func(slot oop.RawSlot) bool)
+func (h *Heap) AllocateMeta(size uint32) uintptr {
+	return h.metaspace.Allocate(size)
+}
+
+func NewSpace(base, end uint64) *Space {
+	return &Space{
+		base:     base,
+		top:      base,
+		end:      end,
+		size:     end - base,
+		capacity: end - base,
+	}
+}
+
+func NewHeap(size uint64) *Heap {
+	// 1.
+	if size < HeapMinSize {
+		size = HeapMinSize
+	}
+	// 2.
+	size = size &^ (PageSize - 1)
+
+	// 3.
+	s0Size := size / 32
+	s1Size := s0Size
+	msSize := s0Size * 2
+	oldSize := s0Size * 20
+	edenSize := s0Size * 8
+
+	// 4.
+	mem, err := syscall.Mmap(-1, 0, int(size), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_ANON|syscall.MAP_PRIVATE)
+	if err != nil {
+		log.Fatalf("Failed to allocate virtual memory via mmap: %v", err)
+	}
+	startPtr := uintptr(unsafe.Pointer(&mem[0]))
+
+	// 5.
+	offset := uint64(startPtr)
+	metaspace := NewSpace(offset, offset+msSize)
+	offset += msSize
+
+	eden := NewSpace(offset, offset+edenSize)
+	offset += edenSize
+
+	survivor0 := NewSpace(offset, offset+s0Size)
+	offset += s0Size
+
+	survivor1 := NewSpace(offset, offset+s1Size)
+	offset += s1Size
+
+	old := NewSpace(offset, offset+oldSize)
+	offset += oldSize
+
+	return &Heap{
+		start: startPtr,
+		total: size,
+
+		metaspace: metaspace,
+		eden:      eden,
+		survivor0: survivor0,
+		survivor1: survivor1,
+		old:       old,
+	}
 }

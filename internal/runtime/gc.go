@@ -1,28 +1,85 @@
 package runtime
 
-import "mk/internal/oop"
+import (
+	"fmt"
+	"time"
+)
 
-type SafepointCoordinator interface {
-	// RequestSafepoint 触发全局安全点请求，挂起所有正在运行的虚拟线程
-	RequestSafepoint()
+type GarbageCollector struct {
+	vm   *VM
+	heap *Heap
 
-	// ReleaseSafepoint 解除安全点，恢复所有虚拟线程的执行
-	ReleaseSafepoint()
+	ygcCount uint32
+	ygcTime  int64
+
+	fgcCount uint32
+	fgcTime  int64
+
+	threshold uint32
 }
 
-type GarbageCollector interface {
-	// Alloc 创建对象
-	Alloc(size uint32, creator func() oop.Obj) oop.Obj
-	// Trigger 触发回收
-	Trigger()
-	// Collect 执行垃圾收集
-	Collect()
-	// Update 更新引用
-	Update(slot *oop.Obj, newObj oop.Obj)
+func (gc *GarbageCollector) MarkAndRelocate(ptr uintptr) {
+
+}
+func (gc *GarbageCollector) MinorGC() {
+	fmt.Println("[GC] Minor GC starting...")
+	gc.vm.stw = true
+
+	gc.ygcCount++
+	start := time.Now()
+
+	for _, thread := range gc.vm.threads {
+		thread.ScanRoots(gc)
+	}
+	fmt.Println("[GC] Scaning root objects in Eden")
+	// TODO
+	fmt.Println("[GC] Copying S0 => S1")
+	// TODO
+
+	fmt.Println("[GC] Reset Eden and S0")
+	gc.heap.eden.Clear()
+	gc.heap.survivor0.Clear()
+
+	fmt.Println("[GC] Swap S0 and S1")
+	gc.heap.survivor0, gc.heap.survivor0 = gc.heap.survivor1, gc.heap.survivor0
+
+	gc.vm.stw = false
+	gc.ygcTime = time.Since(start).Milliseconds()
+	fmt.Println("[GC] Minor GC finished.")
 }
 
-type RootScanner interface {
-	ScanThreadRoots(gc GarbageCollector)
+func (gc *GarbageCollector) MajorGC() {
+	fmt.Println("[GC] Major GC starting...")
+	gc.fgcCount++
+	start := time.Now()
+	// TODO
+	fmt.Println("[GC] Scaning root objects in Metaspace")
+	fmt.Println("[GC] Scaning root objects in Old")
 
-	GetGlobalRoots() []oop.Obj
+	gc.fgcTime = time.Since(start).Milliseconds()
+	fmt.Println("[GC] Major GC finished.")
+}
+
+func (gc *GarbageCollector) Allocate(size uint32) (uintptr, error) {
+	addr := gc.heap.AllocateObj(size)
+	if addr != 0 {
+		return addr, nil
+	}
+
+	// 1. young gc
+	gc.MinorGC()
+
+	addr = gc.heap.AllocateObj(size)
+	if addr != 0 {
+		return addr, nil
+	}
+
+	// 2. full gc
+	gc.MajorGC()
+
+	addr = gc.heap.AllocateObj(size)
+	if addr != 0 {
+		return addr, nil
+	}
+	return 0, fmt.Errorf("OOM: Total size %d bytes", gc.heap.total)
 }

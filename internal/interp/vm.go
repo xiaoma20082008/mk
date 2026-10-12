@@ -1,24 +1,25 @@
 package interp
 
 import (
+	"context"
 	"mk/internal/ast"
+	"mk/internal/classfile"
 	"mk/internal/compiler"
 	"mk/internal/diagnostics"
-	"mk/internal/gc"
 	"mk/internal/oop"
-	"mk/internal/sym"
-	"mk/internal/vm"
+	"mk/internal/runtime"
 )
 
 type VMEngine struct {
-	symbols   sym.Scope // 符号表
-	constants []oop.Obj // 常量池
-	globals   []oop.Obj // 全局区
+	mvm      *runtime.VM
+	compiler compiler.Compiler
+	loader   classfile.ClassLoader
 }
 
 func NewVMEngine() *VMEngine {
 	return &VMEngine{
-		symbols: sym.NewScope(nil),
+		mvm:      runtime.New(),
+		compiler: compiler.NewCompiler(),
 	}
 }
 
@@ -31,33 +32,17 @@ func (e *VMEngine) Exec(p *ast.Program, r diagnostics.DiagnosticReporter) (oop.O
 		return nil, nil
 	}
 
-	// 1. 编译：AST -> 字节码
-	c := compiler.NewCompilerWithState(e.symbols, e.constants)
-	constants, bytecodes, err := c.Compile(p)
-	if err != nil {
-		return nil, err
-	}
-	e.constants = constants
+	// 1.
+	cf := e.compiler.Compile(p)
+	// 2.
+	module := e.loader.Link(cf)
+	// 3.
+	e.mvm.StartMainThread(context.Background(), module.EntryPoint)
 
-	mainFn := &sym.CompiledFunction{Instructions: bytecodes, NumLocals: 0, NumParameters: 0}
-	mainClosure := oop.NewClosure(mainFn, nil)
-
-	// 2. 使用虚拟机开启线程运行字节码：堆 + 虚拟机 + 收集器 + 线程。
-	heap := vm.NewHeap(1 * 1024 * 1024)
-	mvm := vm.NewVM()
-	mvm.SetCollector(gc.New(heap))
-
-	mvm.Load(mainClosure, constants, e.globals)
-	thread := vm.NewThread(mvm)
-	mvm.RegisterThread(thread)
-	thread.Execute()
-
-	result, runErr := mvm.Result()
+	result, runErr := e.mvm.Result()
 	if runErr != nil {
 		return nil, runErr
 	}
 
-	// 把本轮可能新建的全局变量写回，供下一行 REPL 继续引用。
-	e.globals = mvm.Globals()
 	return result, nil
 }
