@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"mk/internal/ast"
 	"mk/internal/diagnostics"
-	"mk/internal/lexer"
 	"mk/internal/token"
 	"reflect"
 	"testing"
@@ -18,7 +17,8 @@ func TestParser_parseLet(t *testing.T) {
 	let a = fn (x, y) { y = y * y;x = x + y;return x+y;};
 	`
 	r := diagnostics.NewReporter("", input)
-	l := lexer.NewLexer(input, r)
+	l := NewLexer(r)
+	l.Reset("", input)
 	p := NewParser(l, r)
 	program := p.ParseCode()
 	if program == nil {
@@ -63,7 +63,8 @@ func TestParser_parseIf(t *testing.T) {
 	}
 	`
 	r := diagnostics.NewReporter("", input)
-	l := lexer.NewLexer(input, r)
+	l := NewLexer(r)
+	l.Reset("", input)
 	p := NewParser(l, r)
 	program := p.ParseCode()
 	if len(r.Diagnostics()) > 0 {
@@ -114,7 +115,8 @@ func Test_parserImpl_parseWhile(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := diagnostics.NewReporter("", tt.line)
-			l := lexer.NewLexer(tt.line, r)
+			l := NewLexer(r)
+			l.Reset("", tt.line)
 			p := NewParser(l, r)
 			got := p.parseWhile()
 			if len(r.Diagnostics()) > 0 {
@@ -164,7 +166,8 @@ func Test_parserImpl_parseReturn(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := diagnostics.NewReporter("", tt.line)
-			l := lexer.NewLexer(tt.line, r)
+			l := NewLexer(r)
+			l.Reset("", tt.line)
 			p := NewParser(l, r)
 			got := p.parseReturn()
 			if len(r.Diagnostics()) > 0 {
@@ -218,7 +221,8 @@ func Test_parserImpl_parseLet(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := diagnostics.NewReporter("t.mk", tt.line)
-			l := lexer.NewLexer(tt.line, r)
+			l := NewLexer(r)
+			l.Reset("", tt.line)
 			p := NewParser(l, r)
 			got := p.parseLet()
 			if len(r.Diagnostics()) > 0 {
@@ -299,7 +303,8 @@ func Test_parserImpl_parseExpr(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := diagnostics.NewReporter("", tt.line)
-			l := lexer.NewLexer(tt.line, r)
+			l := NewLexer(r)
+			l.Reset("", tt.line)
 			p := NewParser(l, r)
 			got := p.ParseExpr()
 			if len(r.Diagnostics()) > 0 {
@@ -321,7 +326,8 @@ func Test_parserImpl_ParseCode(t *testing.T) {
 	let add = fn (x, y) { c = a * a; return c *b;};
 	`
 	r := diagnostics.NewReporter("", input)
-	l := lexer.NewLexer(input, r)
+	l := NewLexer(r)
+	l.Reset("", input)
 	p := NewParser(l, r)
 	code := p.ParseCode()
 

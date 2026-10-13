@@ -1,4 +1,4 @@
-package lexer
+package parser
 
 import (
 	"mk/internal/diagnostics"
@@ -79,7 +79,8 @@ func TestLexer_NextToken(t *testing.T) {
 
 		{token.EOF, ""},
 	}
-	l := NewLexer(input, diagnostics.NewReporter("", input))
+	l := NewLexer(diagnostics.NewReporter("", input))
+	l.Reset("", input)
 	for i, tt := range tests {
 		tok := l.NextToken()
 		if tok.Type != token.TokenType(tt.Type) {

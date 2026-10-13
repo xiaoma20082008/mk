@@ -3,24 +3,16 @@ package parser
 import (
 	"mk/internal/ast"
 	"mk/internal/diagnostics"
-	"mk/internal/lexer"
 	"mk/internal/token"
 	"strconv"
 )
 
-type Parser interface {
-	ParseCode() *ast.Program
-	ParseExpr() ast.Expression
-	ParseStmt() ast.Statement
-}
-
 type prefixParseFn func() ast.Expression
 type infixParseFn func(ast.Expression) ast.Expression
 
-type parserImpl struct {
-	Parser
-	l lexer.Lexer
-	r diagnostics.DiagnosticReporter
+type Parser struct {
+	lexer  *Lexer
+	errors diagnostics.DiagnosticReporter
 
 	token     token.Token
 	prevToken token.Token
@@ -31,10 +23,10 @@ type parserImpl struct {
 	depth int
 }
 
-func NewParser(l lexer.Lexer, r diagnostics.DiagnosticReporter) *parserImpl {
-	p := &parserImpl{
-		l: l,
-		r: r,
+func NewParser(l *Lexer, r diagnostics.DiagnosticReporter) *Parser {
+	p := &Parser{
+		lexer:  l,
+		errors: r,
 
 		prefixFns: map[token.TokenType]prefixParseFn{},
 		infixFns:  map[token.TokenType]infixParseFn{},
@@ -104,11 +96,11 @@ func NewParser(l lexer.Lexer, r diagnostics.DiagnosticReporter) *parserImpl {
 	return p
 }
 
-func (p *parserImpl) ParseExpr() ast.Expression {
+func (p *Parser) ParseExpr() ast.Expression {
 	return p.parseExpr(0)
 }
 
-func (p *parserImpl) ParseStmt() ast.Statement {
+func (p *Parser) ParseStmt() ast.Statement {
 	if p.token.Type == token.EOF {
 		return nil
 	}
@@ -136,7 +128,7 @@ func (p *parserImpl) ParseStmt() ast.Statement {
 	}
 }
 
-func (p *parserImpl) ParseCode() *ast.Program {
+func (p *Parser) ParseCode() *ast.Program {
 	program := &ast.Program{
 		Statements: []ast.Statement{},
 	}
@@ -149,7 +141,7 @@ func (p *parserImpl) ParseCode() *ast.Program {
 	return program
 }
 
-func (p *parserImpl) safeParseStmt() (stmt ast.Statement) {
+func (p *Parser) safeParseStmt() (stmt ast.Statement) {
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(*parsingError); ok {
@@ -164,7 +156,7 @@ func (p *parserImpl) safeParseStmt() (stmt ast.Statement) {
 	return p.ParseStmt()
 }
 
-func (p *parserImpl) crashRecovery() {
+func (p *Parser) crashRecovery() {
 	p.nextToken()
 	for p.token.Type != token.EOF {
 		if p.token.Type == token.SEMI {
@@ -179,12 +171,12 @@ func (p *parserImpl) crashRecovery() {
 	}
 }
 
-func (p *parserImpl) parseExpr(prec int) ast.Expression {
+func (p *Parser) parseExpr(prec int) ast.Expression {
 	var expr ast.Expression
 	prefixFn, ok := p.prefixFns[p.token.Type]
 	if !ok {
-		line, col := p.l.LineMap(p.token.Offset)
-		p.r.Report(diagnostics.ErrNoPrefixParseFunc, line, col, p.token.Lit)
+		line, col := p.lexer.LineMap(p.token.Offset)
+		p.errors.Report(diagnostics.ErrNoPrefixParseFunc, p.lexer.File(), line, col, p.token.Lit)
 		panic(&parsingError{"no prefix parse func found for token: " + p.token.Lit})
 	}
 	expr = prefixFn()
@@ -198,7 +190,7 @@ func (p *parserImpl) parseExpr(prec int) ast.Expression {
 	return expr
 }
 
-func (p *parserImpl) parsePrefix0() ast.Expression {
+func (p *Parser) parsePrefix0() ast.Expression {
 	// 1. 字面量: ident
 	// 2. 数据类型: string,int,true,false,null,self
 	// 3. 一元运算符: +5,-10,!false,~x,typeof(),sizeof()
@@ -234,27 +226,27 @@ func (p *parserImpl) parsePrefix0() ast.Expression {
 	case token.DOLLAR:
 		expr = p.parseCtx()
 	default:
-		line, col := p.l.LineMap(p.token.Offset)
-		p.r.Report(diagnostics.ErrUnknownPrefixKind, line, col, p.token.Lit)
+		line, col := p.lexer.LineMap(p.token.Offset)
+		p.errors.Report(diagnostics.ErrUnknownPrefixKind, p.lexer.File(), line, col, p.token.Lit)
 		panic(&parsingError{"unknown token: " + p.token.Lit})
 	}
 	return expr
 }
 
-func (p *parserImpl) parseCtx() ast.Expression {
+func (p *Parser) parseCtx() ast.Expression {
 	tok := p.token
 	p.nextToken()
 	return &ast.CtxExpr{Token: tok, Value: "$"}
 }
 
-func (p *parserImpl) parseUnary() ast.Expression {
+func (p *Parser) parseUnary() ast.Expression {
 	tok := p.token
 	p.nextToken()
 	expr := p.parseExpr(token.GetPrecedence(tok.Type))
 	return &ast.UnaryExpr{Op: tok, Right: expr}
 }
 
-func (p *parserImpl) parseList() ast.Expression {
+func (p *Parser) parseList() ast.Expression {
 	// [v1,v2,v3]
 	tok := p.token
 	p.expect(token.LBRACKET)
@@ -270,7 +262,7 @@ func (p *parserImpl) parseList() ast.Expression {
 	return &ast.ListLitExpr{Token: tok, Value: v}
 }
 
-func (p *parserImpl) parseMap() ast.Expression {
+func (p *Parser) parseMap() ast.Expression {
 	// {k:v,k:v,}
 	tok := p.token
 	p.expect(token.LBRACE)
@@ -296,7 +288,7 @@ func (p *parserImpl) parseMap() ast.Expression {
 	return &ast.MapLitExpr{Token: tok, Value: v}
 }
 
-func (p *parserImpl) parseGroupOrTuple() ast.Expression {
+func (p *Parser) parseGroupOrTuple() ast.Expression {
 	// Paren: ( x )
 	// Tuple: ( x, y,)
 	tok := p.token
@@ -328,7 +320,7 @@ func (p *parserImpl) parseGroupOrTuple() ast.Expression {
 	return &ast.ParenExpr{Token: tok, Expr: expr}
 }
 
-func (p *parserImpl) parseFunction() ast.Expression {
+func (p *Parser) parseFunction() ast.Expression {
 	// fn(x,y) {}
 	tok := p.token
 	p.expect(token.FUNCTION)
@@ -346,14 +338,14 @@ func (p *parserImpl) parseFunction() ast.Expression {
 	return &ast.FnExpr{Token: tok, Args: args, Body: body}
 }
 
-func (p *parserImpl) parseNew() ast.Expression {
+func (p *Parser) parseNew() ast.Expression {
 	return nil
 }
 
-func (p *parserImpl) parseIdent() *ast.IdentExpr {
+func (p *Parser) parseIdent() *ast.IdentExpr {
 	if p.token.Type != token.IDENT {
-		line, col := p.l.LineMap(p.token.Offset)
-		p.r.Report(diagnostics.ErrExpectedToken, line, col, p.token.Lit)
+		line, col := p.lexer.LineMap(p.token.Offset)
+		p.errors.Report(diagnostics.ErrExpectedToken, p.lexer.File(), line, col, p.token.Lit)
 		panic(&parsingError{"expect an ident, but got: " + p.token.Lit})
 	}
 	e := &ast.IdentExpr{Token: p.token, Value: p.token.Lit}
@@ -361,7 +353,7 @@ func (p *parserImpl) parseIdent() *ast.IdentExpr {
 	return e
 }
 
-func (p *parserImpl) parseCall(left ast.Expression) ast.Expression {
+func (p *Parser) parseCall(left ast.Expression) ast.Expression {
 	expr := &ast.CallExpr{Token: p.token, Fn: left}
 	p.expect(token.LPAREN)
 
@@ -378,7 +370,7 @@ func (p *parserImpl) parseCall(left ast.Expression) ast.Expression {
 	return expr
 }
 
-func (p *parserImpl) parseTernary(left ast.Expression) ast.Expression {
+func (p *Parser) parseTernary(left ast.Expression) ast.Expression {
 	tok := p.token
 	prec := token.GetPrecedence(tok.Type)
 	p.nextToken()
@@ -390,14 +382,14 @@ func (p *parserImpl) parseTernary(left ast.Expression) ast.Expression {
 	return &ast.TernaryExpr{Token: tok, Cond: left, Then: thn, Else: els}
 }
 
-func (p *parserImpl) parseDot(left ast.Expression) ast.Expression {
+func (p *Parser) parseDot(left ast.Expression) ast.Expression {
 	tok := p.token
 	p.expect(token.DOT)
 	rhs := p.parseIdent()
 	return &ast.DotExpr{Token: tok, Lhs: left, Rhs: rhs}
 }
 
-func (p *parserImpl) parseIndex(left ast.Expression) ast.Expression {
+func (p *Parser) parseIndex(left ast.Expression) ast.Expression {
 	tok := p.token
 	p.expect(token.LBRACKET)
 	idx := p.parseExpr(0)
@@ -405,7 +397,7 @@ func (p *parserImpl) parseIndex(left ast.Expression) ast.Expression {
 	return &ast.IndexExpr{Token: tok, Lhs: left, Index: idx}
 }
 
-func (p *parserImpl) parseBinary(left ast.Expression) ast.Expression {
+func (p *Parser) parseBinary(left ast.Expression) ast.Expression {
 	tok := p.token
 	prec := token.GetPrecedence(p.token.Type)
 	p.nextToken()
@@ -416,16 +408,16 @@ func (p *parserImpl) parseBinary(left ast.Expression) ast.Expression {
 	return &ast.BinaryExpr{Op: tok, Lhs: left, Rhs: right}
 }
 
-func (p *parserImpl) nextToken() {
+func (p *Parser) nextToken() {
 	p.prevToken = p.token
-	p.token = p.l.NextToken()
+	p.token = p.lexer.NextToken()
 }
 
-func (p *parserImpl) peekToken() token.Token {
-	return p.l.Lookahead(1)
+func (p *Parser) peekToken() token.Token {
+	return p.lexer.Lookahead(1)
 }
 
-func (p *parserImpl) parseLet() *ast.LetStmt {
+func (p *Parser) parseLet() *ast.LetStmt {
 	// let xxx = xxx ;
 	p.expect(token.LET)
 	name := p.parseIdent()
@@ -435,7 +427,7 @@ func (p *parserImpl) parseLet() *ast.LetStmt {
 	return &ast.LetStmt{Name: name, Value: expr}
 }
 
-func (p *parserImpl) parseIf() *ast.IfStmt {
+func (p *Parser) parseIf() *ast.IfStmt {
 	tok := p.token
 	p.expect(token.IF)
 	p.expect(token.LPAREN)
@@ -451,7 +443,7 @@ func (p *parserImpl) parseIf() *ast.IfStmt {
 	return s
 }
 
-func (p *parserImpl) parseWhile() *ast.WhileStmt {
+func (p *Parser) parseWhile() *ast.WhileStmt {
 	tok := p.token
 	p.expect(token.WHILE)
 	p.expect(token.LPAREN)
@@ -461,7 +453,7 @@ func (p *parserImpl) parseWhile() *ast.WhileStmt {
 	return &ast.WhileStmt{Token: tok, Cond: cond, Body: body}
 }
 
-func (p *parserImpl) parseBlock() *ast.BlockStmt {
+func (p *Parser) parseBlock() *ast.BlockStmt {
 	tok := p.token
 	p.expect(token.LBRACE)
 	stmts := []ast.Statement{}
@@ -475,7 +467,7 @@ func (p *parserImpl) parseBlock() *ast.BlockStmt {
 	return &ast.BlockStmt{Token: tok, Statements: stmts}
 }
 
-func (p *parserImpl) parseReturn() *ast.ReturnStmt {
+func (p *Parser) parseReturn() *ast.ReturnStmt {
 	// return;
 	// return xxx;
 	tok := p.token
@@ -488,7 +480,7 @@ func (p *parserImpl) parseReturn() *ast.ReturnStmt {
 	return &ast.ReturnStmt{Token: tok, Value: expr}
 }
 
-func (p *parserImpl) expect(kind token.TokenType) {
+func (p *Parser) expect(kind token.TokenType) {
 	if p.token.Type == kind {
 		p.nextToken()
 		return
@@ -498,9 +490,9 @@ func (p *parserImpl) expect(kind token.TokenType) {
 	if p.token.Type == token.EOF {
 		pos = p.prevToken.Offset + len(p.prevToken.Lit)
 	}
-	line, col := p.l.LineMap(pos)
+	line, col := p.lexer.LineMap(pos)
 
-	p.r.Report(diagnostics.ErrExpectedToken, line, col, string(kind), p.token.Lit)
+	p.errors.Report(diagnostics.ErrExpectedToken, p.lexer.File(), line, col, string(kind), p.token.Lit)
 	panic(&parsingError{"unknown token: " + p.token.Lit})
 }
 

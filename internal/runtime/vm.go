@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"mk/internal/classfile"
 	"mk/internal/oop"
 )
 
@@ -19,20 +18,7 @@ type VM struct {
 	stw bool
 
 	threads map[int32]*InterpreterThread
-
-	constants []oop.Obj
-	globals   []oop.Obj
-	entry     *oop.Closure
-
-	result oop.Obj
-	err    error
-}
-
-func (vm *VM) Load(cf *classfile.ClassFile) {
-}
-
-func (vm *VM) Result() (oop.Obj, error) {
-	return vm.result, vm.err
+	err     error
 }
 
 func (vm *VM) RequestSafepoint() {}

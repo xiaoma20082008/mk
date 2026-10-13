@@ -1,4 +1,4 @@
-package lexer
+package parser
 
 import (
 	"mk/internal/diagnostics"
@@ -6,23 +6,11 @@ import (
 	"sort"
 )
 
-type Lexer interface {
-	// NextToken 推进词法流,并返回并消费掉下一个Token
-	NextToken() token.Token
-	// Token 返回当前已经被消费、Parser 正在处理的那个 Token
-	Token() token.Token
-	// Lookahead 向前查看第k个Token但不消费它
-	Lookahead(k int) token.Token
-	// ErrPos 词法错误位置
-	ErrPos() int
-	// LineMap 将任意绝对字节位置转换为行号和列号（从 1 开始计数）
-	LineMap(pos int) (line int, column int)
-}
-
 const EOI = 0
 
-type lexerImpl struct {
-	input string
+type Lexer struct {
+	filename string
+	input    string
 
 	pos     int
 	readPos int
@@ -33,10 +21,10 @@ type lexerImpl struct {
 
 	lineStarts []int
 	errPos     int
-	r          diagnostics.DiagnosticReporter
+	errors     diagnostics.DiagnosticReporter
 }
 
-func (l *lexerImpl) NextToken() token.Token {
+func (l *Lexer) NextToken() token.Token {
 	if len(l.saved) > 0 {
 		l.token = l.saved[0]
 		l.saved = l.saved[1:]
@@ -46,11 +34,11 @@ func (l *lexerImpl) NextToken() token.Token {
 	return l.token
 }
 
-func (l *lexerImpl) Token() token.Token {
+func (l *Lexer) Token() token.Token {
 	return l.Lookahead(0)
 }
 
-func (l *lexerImpl) Lookahead(lookahead int) token.Token {
+func (l *Lexer) Lookahead(lookahead int) token.Token {
 	if lookahead == 0 {
 		return l.token
 	} else {
@@ -59,11 +47,11 @@ func (l *lexerImpl) Lookahead(lookahead int) token.Token {
 	}
 }
 
-func (l *lexerImpl) ErrPos() int {
+func (l *Lexer) ErrPos() int {
 	return l.errPos
 }
 
-func (l *lexerImpl) LineMap(pos int) (int, int) {
+func (l *Lexer) LineMap(pos int) (int, int) {
 	if pos <= 0 {
 		return 1, 1
 	}
@@ -78,12 +66,35 @@ func (l *lexerImpl) LineMap(pos int) (int, int) {
 	return line, column
 }
 
-func (l *lexerImpl) readToken() token.Token {
+func (l *Lexer) File() string {
+	return l.filename
+}
+
+func (l *Lexer) Reset(filename, source string) {
+	l.filename = filename
+	l.input = source
+
+	l.saved = []token.Token{}
+	l.token = token.DUMMY
+
+	l.pos = 0
+	l.readPos = 0
+	l.ch = 0
+
+	l.lineStarts = []int{0}
+	l.errPos = -1
+
+	l.errors.Append(filename, source)
+
+	l.readChar()
+}
+
+func (l *Lexer) readToken() token.Token {
 	l.skipWhitespace()
 	var kind token.TokenType
 	startPos := l.pos
 	lit := ""
-	line, column := l.LineMap(startPos)
+	line, column := 0, 0
 	shouldAdvance := true
 	switch l.ch {
 	case '=':
@@ -189,13 +200,12 @@ func (l *lexerImpl) readToken() token.Token {
 		if ok {
 			lit = s
 			kind = token.STRING
-			shouldAdvance = false
 		} else {
 			lit = ""
 			kind = token.ERR
 			// 此时 l.ch 已经是 0 (EOI) 了
-			shouldAdvance = false
 		}
+		shouldAdvance = false
 	default:
 		if isLetter(l.ch) {
 			lit = l.readIdent()
@@ -206,7 +216,8 @@ func (l *lexerImpl) readToken() token.Token {
 			lit = l.readInt()
 			shouldAdvance = false
 		} else {
-			l.r.Report(diagnostics.ErrInvalidChar, line, column, string(l.ch))
+			line, column = l.LineMap(startPos)
+			l.errors.Report(diagnostics.ErrInvalidChar, l.filename, line, column, string(l.ch))
 			l.errPos = startPos
 			kind = token.ERR
 			lit = string(l.ch)
@@ -215,16 +226,19 @@ func (l *lexerImpl) readToken() token.Token {
 	if shouldAdvance {
 		l.readChar()
 	}
+	if line == 0 && column == 0 {
+		line, column = l.LineMap(startPos)
+	}
 	return token.NewToken(kind, lit, line, column, startPos)
 }
 
-func (l *lexerImpl) ensure(lookahead int) {
+func (l *Lexer) ensure(lookahead int) {
 	for i := len(l.saved); i < lookahead; i++ {
 		l.saved = append(l.saved, l.readToken())
 	}
 }
 
-func (l *lexerImpl) readString() (string, bool) {
+func (l *Lexer) readString() (string, bool) {
 	// 1.
 	p := l.pos
 
@@ -234,14 +248,17 @@ func (l *lexerImpl) readString() (string, bool) {
 	for l.ch != '"' && l.ch != 0 {
 		if l.ch == '\\' {
 			l.readChar()
+			if l.ch == EOI {
+				break
+			}
 		}
 		l.readChar()
 	}
 
 	// 3.
-	if l.ch == 0 {
+	if l.ch == EOI {
 		line, col := l.LineMap(p)
-		l.r.Report(diagnostics.ErrUnterminatedString, line, col)
+		l.errors.Report(diagnostics.ErrUnterminatedString, l.filename, line, col)
 		l.errPos = p
 		return "", false
 	}
@@ -255,7 +272,7 @@ func (l *lexerImpl) readString() (string, bool) {
 	return ret, true
 }
 
-func (l *lexerImpl) readInt() string {
+func (l *Lexer) readInt() string {
 	p := l.pos
 	for isDigit(l.ch) {
 		l.readChar()
@@ -263,7 +280,7 @@ func (l *lexerImpl) readInt() string {
 	return l.input[p:l.pos]
 }
 
-func (l *lexerImpl) readIdent() string {
+func (l *Lexer) readIdent() string {
 	p := l.pos
 	for isLetter(l.ch) || isDigit(l.ch) {
 		l.readChar()
@@ -271,7 +288,7 @@ func (l *lexerImpl) readIdent() string {
 	return l.input[p:l.pos]
 }
 
-func (l *lexerImpl) peekChar() byte {
+func (l *Lexer) peekChar() byte {
 	if l.readPos >= len(l.input) {
 		return EOI
 	} else {
@@ -279,7 +296,7 @@ func (l *lexerImpl) peekChar() byte {
 	}
 }
 
-func (l *lexerImpl) readChar() {
+func (l *Lexer) readChar() {
 	if l.readPos >= len(l.input) {
 		l.ch = EOI
 	} else {
@@ -293,24 +310,17 @@ func (l *lexerImpl) readChar() {
 	}
 }
 
-func (l *lexerImpl) skipWhitespace() {
+func (l *Lexer) skipWhitespace() {
 	for l.ch == ' ' || l.ch == '\n' || l.ch == '\t' || l.ch == '\r' {
 		l.readChar()
 	}
 }
 
-func NewLexer(input string, r diagnostics.DiagnosticReporter) Lexer {
-	l := &lexerImpl{
-		input: input,
-
-		saved: []token.Token{},
-		token: token.DUMMY,
-
-		lineStarts: []int{0},
-		errPos:     -1,
-		r:          r,
+func NewLexer(r diagnostics.DiagnosticReporter) *Lexer {
+	l := &Lexer{
+		errors: r,
+		saved:  []token.Token{},
 	}
-	l.readChar()
 	return l
 }
 
