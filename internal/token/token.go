@@ -44,6 +44,15 @@ const (
 
 	DOT = "."
 
+	BIT_AND = "&"
+	BIT_OR  = "|"
+	BIT_XOR = "^"
+
+	LOG_AND = "&&"
+	LOG_OR  = "||"
+
+	COMMENT
+
 	// 请求上下文
 	DOLLAR = "$"
 

@@ -4,6 +4,7 @@ import (
 	"mk/internal/diagnostics"
 	"mk/internal/token"
 	"sort"
+	"strings"
 )
 
 const EOI = 0
@@ -20,7 +21,6 @@ type Lexer struct {
 	saved []token.Token
 
 	lineStarts []int
-	errPos     int
 	errors     diagnostics.DiagnosticReporter
 }
 
@@ -45,10 +45,6 @@ func (l *Lexer) Lookahead(lookahead int) token.Token {
 		l.ensure(lookahead)
 		return l.saved[lookahead-1]
 	}
-}
-
-func (l *Lexer) ErrPos() int {
-	return l.errPos
 }
 
 func (l *Lexer) LineMap(pos int) (int, int) {
@@ -82,9 +78,6 @@ func (l *Lexer) Reset(filename, source string) {
 	l.ch = 0
 
 	l.lineStarts = []int{0}
-	l.errPos = -1
-
-	l.errors.Append(filename, source)
 
 	l.readChar()
 }
@@ -115,9 +108,52 @@ func (l *Lexer) readToken() token.Token {
 	case '*':
 		kind = token.STAR
 		lit = "*"
+	case '&':
+		if l.peekChar() == '&' {
+			l.readChar()
+			kind = token.LOG_AND
+			lit = "&&"
+		} else {
+			kind = token.BIT_AND
+			lit = "&"
+		}
+	case '|':
+		if l.peekChar() == '|' {
+			l.readChar()
+			kind = token.LOG_OR
+			lit = "||"
+		} else {
+			kind = token.BIT_OR
+			lit = "|"
+		}
+	case '^':
+		kind = token.BIT_XOR
+		lit = "^"
 	case '/':
-		kind = token.SLASH
-		lit = "/"
+		pc := l.peekChar()
+		switch pc {
+		case '/':
+			comment, ok := l.readComment(false)
+			if !ok {
+				lit = ""
+				kind = token.ERR
+			} else {
+				lit = comment
+				kind = token.COMMENT
+			}
+		case '*':
+			comment, ok := l.readComment(true)
+			if !ok {
+				lit = ""
+				kind = token.ERR
+			} else {
+				lit = comment
+				kind = token.COMMENT
+			}
+		default:
+			kind = token.SLASH
+			lit = "/"
+		}
 	case '!':
 		if l.peekChar() == '=' {
 			l.readChar()
@@ -192,6 +228,9 @@ func (l *Lexer) readToken() token.Token {
 	case '$':
 		kind = token.DOLLAR
 		lit = "$"
+	case '.':
+		kind = token.DOT
+		lit = "."
 	case 0:
 		kind = token.EOF
 		lit = ""
@@ -218,7 +257,6 @@ func (l *Lexer) readToken() token.Token {
 		} else {
 			line, column = l.LineMap(startPos)
 			l.errors.Report(diagnostics.ErrInvalidChar, l.filename, line, column, string(l.ch))
-			l.errPos = startPos
 			kind = token.ERR
 			lit = string(l.ch)
 		}
@@ -239,36 +277,94 @@ func (l *Lexer) ensure(lookahead int) {
 }
 
 func (l *Lexer) readString() (string, bool) {
-	// 1.
 	p := l.pos
 
-	// 2.跳过开头的"
+	// 跳过开头的"
 	l.readChar()
 
+	var buf strings.Builder
+
 	for l.ch != '"' && l.ch != 0 {
-		if l.ch == '\\' {
+		if l.ch == '\n' {
+			line, col := l.LineMap(p)
+			l.errors.Report(diagnostics.ErrUnterminatedString, l.filename, line, col)
+			return "", false
+		}
+		if l.ch != '\\' {
+			buf.WriteByte(l.ch)
 			l.readChar()
-			if l.ch == EOI {
-				break
-			}
+			continue
+		}
+		bslashPos := l.pos
+		l.readChar()
+
+		if l.ch == EOI {
+			break
+		}
+		switch l.ch {
+		case 'r':
+			buf.WriteByte('\r')
+		case 'n':
+			buf.WriteByte('\n')
+		case 't':
+			buf.WriteByte('\t')
+		case 'f':
+			buf.WriteByte('\f')
+		case '"':
+			buf.WriteByte('"')
+		case '0':
+			buf.WriteByte(0)
+		case '\\':
+			buf.WriteByte('\\')
+		case '\'':
+			buf.WriteByte('\'')
+		default:
+			line, col := l.LineMap(bslashPos)
+			l.errors.Report(diagnostics.ErrInvalidEscape, l.filename, line, col, string(l.ch))
+			buf.WriteByte('\\')
+			buf.WriteByte(l.ch)
 		}
 		l.readChar()
 	}
 
-	// 3.
 	if l.ch == EOI {
 		line, col := l.LineMap(p)
 		l.errors.Report(diagnostics.ErrUnterminatedString, l.filename, line, col)
-		l.errPos = p
 		return "", false
 	}
 
-	// 4.
-	ret := l.input[p+1 : l.pos]
+	ret := buf.String()
 
-	// 5. 跳过末尾的"
+	// 跳过末尾的"
 	l.readChar()
 
+	return ret, true
+}
+
+func (l *Lexer) readComment(multi bool) (string, bool) {
+	l.readChar() // 跳过 / 或 *
+	p := l.pos
+
+	for l.ch != EOI {
+		if multi && l.ch == '*' && l.peekChar() == '/' {
+			l.readChar()
+			break
+		} else if !multi && l.ch == '\n' {
+			break
+		}
+		l.readChar()
+	}
+
+	if multi && l.ch == EOI {
+		line, col := l.LineMap(p)
+		l.errors.Report(diagnostics.ErrUnterminatedComment, l.filename, line, col)
+		return "", false
+	}
+	ret := l.input[p:l.pos]
+
+	if multi { // 读取下一个
+		l.readChar()
+	}
 	return ret, true
 }
 

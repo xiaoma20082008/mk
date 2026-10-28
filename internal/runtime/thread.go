@@ -22,6 +22,11 @@ type StackFrame struct {
 	method *oop.MethodDef
 	pc     int
 	base   int
+
+	localVars any // 局部变量表
+	opStack   any // 操作数栈
+	retAddr   any // 方法返回地址
+	libs      any // 动态链接
 }
 
 type InterpreterThread struct {

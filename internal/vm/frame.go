@@ -16,6 +16,12 @@ type stackFrame struct {
 	locals []Value
 	stack  []Value
 	sp     int
+
+	attr struct {
+		returnValue  Value
+		code         []byte
+		constantPool any // 常量池
+	}
 }
 
 func (f *stackFrame) Push(val Value) {
