@@ -99,42 +99,68 @@ var keywords = map[string]TokenType{
 	"struct": STRUCT,
 }
 
-var precedences = map[TokenType]int{
+var PREC_edences = map[TokenType]int{
 	// 赋值运算符 (最低)
-	ASSIGN: 1, // =
+	ASSIGN: PREC_ASSIGN, // =
 
 	// 三元条件运算符
-	QUESTION: 2, // ?
+	QUESTION: PREC_QUESTION, // ?
 
-	// 逻辑/关系比较
-	EQ: 21, // ==
-	NE: 22, // !=
-	LT: 23, // <
-	GT: 24, // >
-	LE: 25, // <=
-	GE: 26, // >=
+	// 逻辑
+	LOG_OR:  PREC_LOG_OR,
+	LOG_AND: PREC_LOG_AND,
+	// OR:      PREC_LOG_OR,
+	// AND:     PREC_LOG_AND,
 
-	// 位运算
-	LTLT: 27, // <<
-	GTGT: 28, // >>
+	// 关系比较
+	EQ: PREC_EQUALS,       // ==
+	NE: PREC_EQUALS,       // !=
+	LT: PREC_LESS_GREATER, // <
+	GT: PREC_LESS_GREATER, // >
+	LE: PREC_LESS_GREATER, // <=
+	GE: PREC_LESS_GREATER, // >=
 
 	// 算术运算
-	PLUS:    31, // +
-	MINUS:   32, // -
-	SLASH:   33, // /
-	STAR:    34, // *
-	PERCENT: 35, // % (取模)
+	BIT_OR:  PREC_BIT_OR,
+	BIT_XOR: PREC_BIT_XOR,
+	BIT_AND: PREC_BIT_AND,
+	LTLT:    PREC_SHIFT,   // <<
+	GTGT:    PREC_SHIFT,   // >>
+	PLUS:    PREC_SUM,     // +
+	MINUS:   PREC_SUM,     // -
+	SLASH:   PREC_PRODUCT, // /
+	STAR:    PREC_PRODUCT, // *
+	PERCENT: PREC_PRODUCT, // % (取模)
 
 	// 函数调用
-	LPAREN: 41, // (
-
+	LPAREN: PREC_CALL, // (
 	// 数组/索引访问
-	LBRACKET: 42, // [
-	DOT:      43, // .
+	LBRACKET: PREC_CALL, // [
+	DOT:      PREC_CALL, // .
 }
 
-func GetPrecedence(k TokenType) int {
-	if p, ok := precedences[k]; ok {
+const (
+	_ int = iota
+	PREC_LOWEST
+	PREC_ASSIGN       // =
+	PREC_QUESTION     // ?
+	PREC_LOG_OR       // ||
+	PREC_LOG_AND      // &&
+	PREC_EQUALS       // ==, !=
+	PREC_LESS_GREATER // >, <, >=, <=
+	PREC_BIT_OR       // |
+	PREC_BIT_XOR      // ^
+	PREC_BIT_AND      // &
+	PREC_SHIFT        // <<, >>
+	PREC_SUM          // +, -
+	PREC_PRODUCT      // *, /, %
+	PREC_PREFIX       // 一元前缀: +, -, !, ~
+	PREC_CALL         // 方法/函数调用: .(, (
+	PREC_HIGHEST
+)
+
+func GetPREC_edence(k TokenType) int {
+	if p, ok := PREC_edences[k]; ok {
 		return p
 	}
 	return 0
