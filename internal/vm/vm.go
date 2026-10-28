@@ -105,8 +105,8 @@ func (vm *VM) InterpRun(code string, w io.Writer) error {
 	l.Reset("", code)
 	p := parser.NewParser(l, r)
 	ast := p.ParseCode()
-	e := interp.NewEvaluator(global)
-	e.Eval(ast)
+	e := interp.NewEvaluator(global, r)
+	e.EvalWithWriter(ast, w)
 	return nil
 }
 

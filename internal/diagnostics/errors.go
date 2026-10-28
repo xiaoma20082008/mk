@@ -263,4 +263,10 @@ var (
 		Kind:     KindRuntime,
 		Template: "index out of bounds: %d",
 	}
+	// E4006: assert 断言失败，条件求值为假
+	ErrAssertFailed = DiagnosticDescriptor{
+		Code:     "E4006",
+		Kind:     KindRuntime,
+		Template: "assertion failed: expected a truthy condition, got %s",
+	}
 )
